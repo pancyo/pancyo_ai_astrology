@@ -1,0 +1,73 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Local verification material (never publish)
+/artifacts/
+/ai_crash_*.log
+/ai_crash_*.err.log
+/audit_*.png
+/phone_*.png
+/tablet_*.png
+
+# Local Android signing and machine settings
+/android/local.properties
+/android/key.properties
+**/*.keystore
+**/*.jks
+google-services.json
+GoogleService-Info.plist
+
+# Swiss Ephemeris: this app builds with Moshier calculations.  Optional
+# ephemeris datasets, upstream binaries, and test fixtures are not bundled.
+/third_party/swisseph/ephe/
+/third_party/swisseph/bin/
+/third_party/swisseph/setest/
+/third_party/swisseph/windows/*.zip
+/third_party/swisseph/contrib/**/*.zip
+/third_party/swisseph/contrib/android/libs/
+/third_party/swisseph/windows/programs/
+/third_party/swisseph/doc/media/
+/third_party/swisseph/doc/*.pdf
