@@ -2063,7 +2063,10 @@ class OverallFortuneCard extends StatelessWidget {
       } else {
         parts.add('今日は大きな結論を急がず、確認できる材料を一つ増やしてから次へ進むと安定します');
       }
-      return '${parts.join('。')}。';
+      return '${parts
+          .map((part) => part.trim().replaceFirst(RegExp(r'[。．]+$'), ''))
+          .where((part) => part.isNotEmpty)
+          .join('。')}。';
     }
 
     final parts = <String>[];
@@ -8974,6 +8977,8 @@ class DailyAstroDataExportCard extends StatelessWidget {
           .map((item) => {'planet': item.planet.label, 'sign': item.sign.label, 'degree': item.degree, 'house': item.house})
           .toList(),
       'void_moon': voidMoon == null ? null : {'start_jst': _jst(voidMoon.startTime), 'end_jst': _jst(voidMoon.endTime)},
+      'lunar_phase': DailyAstroEventsCard(date: date, contextData: contextData)
+          ._lunarPhaseSnapshot(DateTime(date.year, date.month, date.day, 12), AstrologyDataSources.current),
       'retrograde_planets': {
         ...contextData.retrogradePlanets,
         ...DailyAstroEventsCard.verifiedRetrogradesAt(date),
@@ -9183,35 +9188,141 @@ class DailyAstroEventsCard extends StatelessWidget {
   }
 
   String? _lunarPhaseEvent(DateTime start, EphemerisProvider ephemeris) {
-    final cache = <DateTime, List<PlanetPlacement>>{};
-    var closestNew = 360.0;
-    var closestFull = 360.0;
-    DateTime? newTime;
-    DateTime? fullTime;
-    for (var hour = 0; hour <= 24; hour++) {
-      final time = start.add(Duration(hours: hour));
-      final sun = _longitudeAt(ephemeris, AstroPlanet.sun, time, cache);
-      final moon = _longitudeAt(ephemeris, AstroPlanet.moon, time, cache);
-      if (sun == null || moon == null) continue;
-      var angle = (moon - sun).abs() % 360;
-      if (angle > 180) angle = 360 - angle;
-      if (angle < closestNew) {
-        closestNew = angle;
-        newTime = time;
+    final phase = _lunarPhaseSnapshot(start.add(const Duration(hours: 12)), ephemeris);
+    final event = phase['major_phase_event_jst'] as Map<String, Object?>?;
+    if (event == null) return null;
+    final label = event['label'] as String;
+    final time = event['time_jst'] as String;
+    final shortTime = time.substring(11, 16);
+    return switch (label) {
+      '新月' => '$shortTime頃　新月：新しいことは小さく始め、意図を一つ決める',
+      '上弦の月' => '$shortTime頃　上弦の月：育てたいことを一つ行動に移す',
+      '満月' => '$shortTime頃　満月：結果と気持ちが表れやすいので、振り返りと調整を',
+      '下弦の月' => '$shortTime頃　下弦の月：手放すことを一つ決め、次の準備をする',
+      _ => null,
+    };
+  }
+
+  double? _lunarElongation(
+    EphemerisProvider ephemeris,
+    DateTime time,
+    Map<DateTime, List<PlanetPlacement>> cache,
+  ) {
+    final sun = _longitudeAt(ephemeris, AstroPlanet.sun, time, cache);
+    final moon = _longitudeAt(ephemeris, AstroPlanet.moon, time, cache);
+    if (sun == null || moon == null) return null;
+    return (moon - sun + 360) % 360;
+  }
+
+  double _forwardAngle(double from, double to) => (to - from + 360) % 360;
+
+  double _shortestAngle(double first, double second) {
+    final forward = _forwardAngle(first, second);
+    return forward > 180 ? 360 - forward : forward;
+  }
+
+  ({String key, String label}) _lunarPhaseLabel(double elongation) {
+    if (elongation < 22.5 || elongation >= 337.5) return (key: 'new_moon', label: '新月');
+    if (elongation < 67.5) return (key: 'waxing_crescent', label: '満ちていく三日月');
+    if (elongation < 112.5) return (key: 'first_quarter', label: '上弦の月');
+    if (elongation < 157.5) return (key: 'waxing_gibbous', label: '満ちていく凸月');
+    if (elongation < 202.5) return (key: 'full_moon', label: '満月');
+    if (elongation < 247.5) return (key: 'waning_gibbous', label: '欠けていく凸月');
+    if (elongation < 292.5) return (key: 'last_quarter', label: '下弦の月');
+    return (key: 'waning_crescent', label: '欠けていく三日月');
+  }
+
+  String _lunarPhaseKey(double target) => switch (target.toInt()) {
+        0 => 'new_moon',
+        90 => 'first_quarter',
+        180 => 'full_moon',
+        _ => 'last_quarter',
+      };
+
+  String _lunarPhaseName(double target) => switch (target.toInt()) {
+        0 => '新月',
+        90 => '上弦の月',
+        180 => '満月',
+        _ => '下弦の月',
+      };
+
+  DateTime? _majorLunarPhaseTime(
+    DateTime start,
+    DateTime end,
+    double target,
+    EphemerisProvider ephemeris,
+    Map<DateTime, List<PlanetPlacement>> cache,
+  ) {
+    var previousTime = start;
+    var previous = _lunarElongation(ephemeris, previousTime, cache);
+    if (previous == null) return null;
+    for (var minutes = 30; minutes <= 24 * 60; minutes += 30) {
+      final currentTime = start.add(Duration(minutes: minutes));
+      final current = _lunarElongation(ephemeris, currentTime, cache);
+      if (current == null) continue;
+      final previousAngle = previous ?? 0;
+      final traveled = _forwardAngle(previousAngle, current);
+      final distance = _forwardAngle(previousAngle, target);
+      if (traveled <= 3 && distance <= traveled) {
+        final estimatedMinutes = (distance / traveled * 30).round();
+        final center = previousTime.add(Duration(minutes: estimatedMinutes));
+        DateTime? closest;
+        var closestError = double.infinity;
+        for (var offset = -3; offset <= 3; offset++) {
+          final candidate = center.add(Duration(minutes: offset));
+          if (candidate.isBefore(start) || !candidate.isBefore(end)) continue;
+          final angle = _lunarElongation(ephemeris, candidate, cache);
+          if (angle == null) continue;
+          final error = _shortestAngle(angle, target);
+          if (error < closestError) {
+            closestError = error;
+            closest = candidate;
+          }
+        }
+        return closest;
       }
-      final fullDistance = (angle - 180).abs();
-      if (fullDistance < closestFull) {
-        closestFull = fullDistance;
-        fullTime = time;
-      }
-    }
-    if (closestNew <= 0.7 && newTime != null) {
-      return '${_time(newTime)}頃　新月：新しいことは小さく始め、意図を一つ決める';
-    }
-    if (closestFull <= 0.7 && fullTime != null) {
-      return '${_time(fullTime)}頃　満月：結果と気持ちが表れやすいので、振り返りと調整を';
+      previousTime = currentTime;
+      previous = current;
     }
     return null;
+  }
+
+  String _dateTimeJst(DateTime value) {
+    final jst = value.toUtc().add(const Duration(hours: 9));
+    return '${jst.year.toString().padLeft(4, '0')}-${jst.month.toString().padLeft(2, '0')}-${jst.day.toString().padLeft(2, '0')} '
+        '${jst.hour.toString().padLeft(2, '0')}:${jst.minute.toString().padLeft(2, '0')}:00+09:00';
+  }
+
+  Map<String, Object?> _lunarPhaseSnapshot(DateTime reference, EphemerisProvider ephemeris) {
+    final cache = <DateTime, List<PlanetPlacement>>{};
+    final elongation = _lunarElongation(ephemeris, reference, cache) ?? 0;
+    final phase = _lunarPhaseLabel(elongation);
+    final illumination = ((1 - math.cos(elongation * math.pi / 180)) / 2 * 100).clamp(0, 100);
+    final start = DateTime(reference.year, reference.month, reference.day);
+    final end = start.add(const Duration(days: 1));
+    Map<String, Object?>? majorEvent;
+    for (final target in const [0.0, 90.0, 180.0, 270.0]) {
+      final eventTime = _majorLunarPhaseTime(start, end, target, ephemeris, cache);
+      if (eventTime != null) {
+        majorEvent = {
+          'key': _lunarPhaseKey(target),
+          'label': _lunarPhaseName(target),
+          'time_jst': _dateTimeJst(eventTime),
+          'calculation': '太陽と月の地心黄経差が${target.toInt()}°になる時刻を30分探索後、分単位で絞り込み',
+        };
+        break;
+      }
+    }
+    return {
+      'reference_time_jst': _dateTimeJst(reference),
+      'phase_key': phase.key,
+      'phase_label': phase.label,
+      'elongation_degrees': double.parse(elongation.toStringAsFixed(3)),
+      'illumination_percent': double.parse(illumination.toStringAsFixed(1)),
+      'lunar_age_days_approx': double.parse((elongation / 360 * 29.530588).toStringAsFixed(2)),
+      'is_waxing': elongation > 0 && elongation < 180,
+      'major_phase_event_jst': majorEvent,
+    };
   }
 
   List<String> _configurationEvents(HoroscopeReadingContext contextData) {
@@ -9256,6 +9367,10 @@ class DailyAstroEventsCard extends StatelessWidget {
       events.add('12:00　月は${moon.sign.label}：気分と行動のペースをここで確認');
     }
     final ephemeris = AstrologyDataSources.current;
+    final lunarPhase = _lunarPhaseSnapshot(DateTime(date.year, date.month, date.day, 12), ephemeris);
+    events.add(
+      '12:00　月相：${lunarPhase['phase_label']}（照度${lunarPhase['illumination_percent']}%・月齢目安${lunarPhase['lunar_age_days_approx']}日）',
+    );
     final stationEvents = _stationEvents(start, end, ephemeris);
     events.addAll(stationEvents);
     final phaseEvent = _lunarPhaseEvent(start, ephemeris);
@@ -11274,6 +11389,8 @@ class ExternalAstroDataExportCard extends StatelessWidget {
               'start': _dateTimeJst(context.transit.voidMoon!.startTime),
               'end': _dateTimeJst(context.transit.voidMoon!.endTime),
             },
+      'lunar_phase': DailyAstroEventsCard(date: context.transit.date, contextData: context)
+          ._lunarPhaseSnapshot(context.transit.date, AstrologyDataSources.current),
       'retrograde_planets': {
         ...context.retrogradePlanets,
         ...DailyAstroEventsCard.verifiedRetrogradesAt(context.transit.date),
@@ -11304,6 +11421,8 @@ class ExternalAstroDataExportCard extends StatelessWidget {
               'start': _dateTimeJst(daily.transit.voidMoon!.startTime),
               'end': _dateTimeJst(daily.transit.voidMoon!.endTime),
             },
+      'lunar_phase': DailyAstroEventsCard(date: date, contextData: daily)
+          ._lunarPhaseSnapshot(date, AstrologyDataSources.current),
       'retrograde_planets': {
         ...daily.retrogradePlanets,
         ...DailyAstroEventsCard.verifiedRetrogradesAt(date),
