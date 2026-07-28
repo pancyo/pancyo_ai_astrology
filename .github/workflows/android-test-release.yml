@@ -38,13 +38,17 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/pancyo-test.keystore"
-          cat > android/key.properties <<EOF
-          storePassword=$ANDROID_KEYSTORE_PASSWORD
-          keyPassword=$ANDROID_KEY_PASSWORD
-          keyAlias=$ANDROID_KEY_ALIAS
-          storeFile=$RUNNER_TEMP/pancyo-test.keystore
-          EOF
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/pancyo-test.keystore"
+            cat > android/key.properties <<EOF
+            storePassword=$ANDROID_KEYSTORE_PASSWORD
+            keyPassword=$ANDROID_KEY_PASSWORD
+            keyAlias=$ANDROID_KEY_ALIAS
+            storeFile=$RUNNER_TEMP/pancyo-test.keystore
+            EOF
+          else
+            echo "固定署名鍵は未設定です。今回のAPKは上書き更新に使えません。"
+          fi
 
       - name: Profile APKを作成
         run: flutter build apk --profile --build-number=$((50 + GITHUB_RUN_NUMBER))
