@@ -1,0 +1,45 @@
+name: Android テスト版APKを配布
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Profile APKをビルドしてGitHub Releasesへ載せる
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ソースを取得
+        uses: actions/checkout@v4
+
+      - name: Javaを準備
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Flutterを準備
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: 依存関係を取得
+        run: flutter pub get
+
+      - name: Profile APKを作成
+        run: flutter build apk --profile --build-number=$((50 + GITHUB_RUN_NUMBER))
+
+      - name: テスト版リリースを作成
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          "build/app/outputs/flutter-apk/app-profile.apk#app-profile.apk"
+          --title "ぱんちょ式星占い テスト版 $GITHUB_REF_NAME"
+          --prerelease
+          --generate-notes
