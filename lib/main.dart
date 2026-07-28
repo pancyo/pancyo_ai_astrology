@@ -18,7 +18,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'swiss_ephemeris_bridge.dart';
 
-// 旧版の任意ダウンロードデータだけを、更新時に安全に掃除する。
+// 旧版の任意ダウンロードデータと廃止した履歴だけを、更新時に安全に掃除する。
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await HouseSystemSettings.restore();
@@ -26,8 +26,8 @@ Future<void> main() async {
   runApp(const PancyoAstrologyApp());
 }
 
-/// 旧版の任意ダウンロードデータと状態情報だけを起動時に掃除する。
-/// プロフィールなど利用者の設定は対象外。
+/// 旧版の任意ダウンロードデータと、保存しない方針に変えた履歴だけを起動時に掃除する。
+/// プロフィールや占い設定など利用者の設定は対象外。
 class LegacyDataCleanup {
   const LegacyDataCleanup._();
 
@@ -39,6 +39,8 @@ class LegacyDataCleanup {
         'ai_data.source_label', 'ai_data.source_url', 'ai_data.runtime',
         'ai_data.size_bytes', 'ai_data.downloaded_at', 'ai_data.checksum',
         'ai_data.file_path',
+        CustomFortuneLog._storageKey,
+        DailyFortuneReflection._storageKey,
       ];
       final modelPath = prefs.getString('ai_data.file_path');
       for (final key in keys) {
@@ -725,7 +727,7 @@ class _SavedProfileButton extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('プロフィールを削除しますか？'),
-        content: Text('${profile.name} の保存プロフィールを削除します。チャット鑑定と毎日の占いログも削除されます。占い結果や星データそのものは削除されません。'),
+        content: Text('${profile.name} の保存プロフィールを削除します。鑑定ナビの会話履歴と保存メモも削除されます。占い結果や星データそのものは削除されません。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -1773,7 +1775,7 @@ class _ResultScreenState extends State<ResultScreen> {
       compactLabel: '星',
       ),
       _TabItem(
-        'チャット鑑定',
+        '鑑定ナビ',
         Icons.chat_bubble_outline,
         _visitedTabs.contains(3)
             ? CustomReading(
@@ -1786,7 +1788,7 @@ class _ResultScreenState extends State<ResultScreen> {
                 },
               )
             : const SizedBox.shrink(),
-        compactLabel: 'チャット',
+        compactLabel: '鑑定',
       ),
       _TabItem(
         'プロフィール',
@@ -2011,6 +2013,10 @@ class OverallFortuneCard extends StatelessWidget {
     final returnEvent = contextData.returns.isEmpty ? null : contextData.returns.first;
     final transit = contextData.houseTransits.isEmpty ? null : contextData.houseTransits.first;
     final stationHint = _stationReadingHint(date, contextData);
+    final effectiveRetrogrades = <AstroPlanet>{
+      ...contextData.retrogradePlanets,
+      if (date != null) ...DailyAstroEventsCard.verifiedRetrogradesAt(date!),
+    };
     final lunarPhaseHint = _lunarPhaseReadingHint(date, contextData);
     final majorIngressHint = _majorIngressReadingHint(date);
     final transitStelliums = _transitStelliumLabels(contextData);
@@ -2040,8 +2046,8 @@ class OverallFortuneCard extends StatelessWidget {
       }
       if (returnEvent != null) {
         parts.add('過去のやり方を見直して次の段階へ進む節目も重なるため、続けたいことを一つ選び直すと動きやすくなります');
-      } else if (contextData.retrogradePlanets.isNotEmpty) {
-        parts.add('連絡や予定に行き違いが出やすいので、一度見直してから確定すると安心です');
+      } else if (effectiveRetrogrades.isNotEmpty) {
+        parts.add('${effectiveRetrogrades.map((planet) => planet.label).join('・')}が逆行中です。連絡や予定は一度見直してから確定すると安心です');
       }
       if (transitStelliums.isNotEmpty) {
         parts.add('空の${transitStelliums.join('・')}に星が集中するため、そのテーマを一つに絞ると力を使いやすくなります');
@@ -2084,7 +2090,7 @@ class OverallFortuneCard extends StatelessWidget {
     if (majorIngressHint != null) {
       parts.add('$majorIngressHint。');
     }
-    final retrograde = contextData.retrogradePlanets.map((planet) => planet.label).toList();
+    final retrograde = effectiveRetrogrades.map((planet) => planet.label).toList();
     if (retrograde.isNotEmpty) {
       parts.add('${retrograde.join('・')}が逆行中です。連絡、契約、買い物、予定は一度見返してから確定すると、余計なやり直しを減らせます。');
     }
@@ -4963,7 +4969,21 @@ class FortuneScoreCalculator {
     add('グランドトライン', _grandTrinePulse(contextData, area));
     add('出生図のステリウム', _natalStelliumPulse(contextData, area));
     add('出生図のカイト', _natalPatternPulse(contextData, area));
+    final rarePatterns = _rarePatternLabels(contextData.transit.placements);
+    final rarePatternPulse = _rarePatternPulse(rarePatterns, area);
+    if (rarePatternPulse != 0) {
+      add('空のレア配置', rarePatternPulse, detail: rarePatterns.join('・'), formula: 'レア配置ごとの分野別補正（上限あり）');
+    }
     add('金星支配の感受性', _venusRulerSensitivityPulse(contextData, area));
+    final retrogradePulse = _retrogradePulse(contextData, area);
+    if (retrogradePulse != 0) {
+      add(
+        '逆行中の星',
+        retrogradePulse,
+        detail: contextData.retrogradePlanets.map((planet) => planet.label).join('・'),
+        formula: '分野に関係する逆行星の見直し補正（重ね掛けはせず合算上限あり）',
+      );
+    }
 
     final voidMoon = contextData.transit.voidMoon;
     if (voidMoon != null) {
@@ -5059,6 +5079,50 @@ class FortuneScoreCalculator {
         ) ||
         contextData.transitPairAspects.any((aspect) => aspect.involves(AstroPlanet.venus));
     return venusActive ? (area == FortuneArea.love ? 2.2 : 1.7) : 0;
+  }
+
+  /// 逆行は吉凶の断定ではなく、進め方を見直す必要がある分だけ
+  /// 点数へ穏やかに補正する。全惑星を対象にし、過大に下げない。
+  static double _retrogradePulse(
+    HoroscopeReadingContext contextData,
+    FortuneArea area,
+  ) {
+    var pulse = 0.0;
+    for (final planet in contextData.retrogradePlanets) {
+      pulse += switch (planet) {
+        AstroPlanet.mercury => switch (area) {
+            FortuneArea.work => -1.8,
+            FortuneArea.money => -1.0,
+            FortuneArea.love => -0.7,
+            _ => -0.4,
+          },
+        AstroPlanet.venus => switch (area) {
+            FortuneArea.love => -1.5,
+            FortuneArea.money => -1.4,
+            _ => -0.4,
+          },
+        AstroPlanet.mars => switch (area) {
+            FortuneArea.work || FortuneArea.mental => -1.1,
+            FortuneArea.love => -0.8,
+            _ => -0.5,
+          },
+        AstroPlanet.jupiter => switch (area) {
+            FortuneArea.money || FortuneArea.overall => -1.0,
+            _ => -0.4,
+          },
+        AstroPlanet.saturn => switch (area) {
+            FortuneArea.work => -1.6,
+            FortuneArea.mental => -1.0,
+            FortuneArea.overall => -0.8,
+            _ => -0.4,
+          },
+        AstroPlanet.uranus => area == FortuneArea.work || area == FortuneArea.overall ? -0.7 : -0.3,
+        AstroPlanet.neptune => area == FortuneArea.mental || area == FortuneArea.overall ? -0.7 : -0.3,
+        AstroPlanet.pluto => area == FortuneArea.overall || area == FortuneArea.mental ? -0.6 : -0.25,
+        AstroPlanet.sun || AstroPlanet.moon || AstroPlanet.ascendant || AstroPlanet.midheaven => 0.0,
+      };
+    }
+    return pulse.clamp(-3.5, 0.0).toDouble();
   }
 
   static _ScoreCalculation _aspectCalculation(TransitAspect aspect) {
@@ -5446,6 +5510,75 @@ class FortuneScoreCalculator {
     return _grandTrineGroups(contextData.transit.placements).isNotEmpty;
   }
 
+  static List<String> transitRarePatternLabels(HoroscopeReadingContext contextData) =>
+      _rarePatternLabels(contextData.transit.placements);
+
+  static List<String> natalRarePatternLabels(HoroscopeReadingContext contextData) =>
+      _rarePatternLabels(contextData.natal.placements);
+
+  static List<String> _rarePatternLabels(List<PlanetPlacement> source) {
+    final placements = source.where((item) => item.planet != AstroPlanet.ascendant && item.planet != AstroPlanet.midheaven).toList();
+    final labels = <String>{};
+    for (var a = 0; a < placements.length; a++) {
+      for (var b = a + 1; b < placements.length; b++) {
+        for (var c = b + 1; c < placements.length; c++) {
+          final ab = _planetLongitude(placements[a]);
+          final bc = _planetLongitude(placements[b]);
+          final ac = _planetLongitude(placements[c]);
+          if ((_nearAspect(ab, bc, 180) && _nearAspect(ab, ac, 90) && _nearAspect(ac, bc, 90)) ||
+              (_nearAspect(ab, ac, 180) && _nearAspect(ab, bc, 90) && _nearAspect(bc, ac, 90)) ||
+              (_nearAspect(ac, bc, 180) && _nearAspect(ac, ab, 90) && _nearAspect(ab, bc, 90))) labels.add('Tスクエア');
+          if ((_nearAspect(ab, ac, 60) && _nearAspect(ab, bc, 150, orb: 3) && _nearAspect(ac, bc, 150, orb: 3)) ||
+              (_nearAspect(ab, bc, 60) && _nearAspect(ab, ac, 150, orb: 3) && _nearAspect(bc, ac, 150, orb: 3)) ||
+              (_nearAspect(ac, bc, 60) && _nearAspect(ac, ab, 150, orb: 3) && _nearAspect(bc, ab, 150, orb: 3))) labels.add('ヨッド');
+          // ハンマー・オブ・ソー: 90度の土台へ、二本の135度が集まる。
+          if ((_nearAspect(ab, ac, 90) && _nearAspect(ab, bc, 135, orb: 3) && _nearAspect(ac, bc, 135, orb: 3)) ||
+              (_nearAspect(ab, bc, 90) && _nearAspect(ab, ac, 135, orb: 3) && _nearAspect(bc, ac, 135, orb: 3)) ||
+              (_nearAspect(ac, bc, 90) && _nearAspect(ac, ab, 135, orb: 3) && _nearAspect(bc, ab, 135, orb: 3))) labels.add('ハンマー・オブ・ソー');
+          for (var d = c + 1; d < placements.length; d++) {
+            final values = [ab, bc, ac, _planetLongitude(placements[d])];
+            var oppositions = 0; var squares = 0; var trines = 0; var sextiles = 0;
+            for (var i = 0; i < values.length; i++) {
+              for (var j = i + 1; j < values.length; j++) {
+                if (_nearAspect(values[i], values[j], 180)) oppositions++;
+                if (_nearAspect(values[i], values[j], 90)) squares++;
+                if (_nearAspect(values[i], values[j], 120)) trines++;
+                if (_nearAspect(values[i], values[j], 60)) sextiles++;
+              }
+            }
+            if (oppositions >= 2 && squares >= 4) labels.add('グランドクロス');
+            if (oppositions >= 2 && trines >= 2 && sextiles >= 2) labels.add('ミスティックレクタングル（ダイヤモンド）');
+            if (oppositions == 1 && trines >= 2 && sextiles >= 2) labels.add('クレイドル（ゆりかご）');
+            if (labels.contains('ヨッド') && oppositions >= 1) labels.add('ブーメラン（ヨッド）');
+          }
+        }
+      }
+    }
+    if (placements.length >= 6) {
+      var sextiles = 0;
+      for (var i = 0; i < placements.length; i++) {
+        for (var j = i + 1; j < placements.length; j++) {
+          if (_nearAspect(_planetLongitude(placements[i]), _planetLongitude(placements[j]), 60)) sextiles++;
+        }
+      }
+      if (sextiles >= 6) labels.add('グランドセクスタイル');
+    }
+    return labels.toList()..sort();
+  }
+
+  static double _rarePatternPulse(List<String> labels, FortuneArea area) {
+    var value = 0.0;
+    for (final label in labels) {
+      if (label == 'グランドクロス' || label == 'Tスクエア') value += area == FortuneArea.mental ? -1.8 : -1.3;
+      if (label == 'ヨッド') value += area == FortuneArea.overall ? -0.8 : -0.5;
+      if (label == 'クレイドル（ゆりかご）') value += area == FortuneArea.mental ? 1.4 : 1.0;
+      if (label == 'ミスティックレクタングル（ダイヤモンド）') value += 1.3;
+      if (label == 'グランドセクスタイル') value += 2.0;
+      if (label == 'ブーメラン（ヨッド）' || label == 'ハンマー・オブ・ソー') value += -1.0;
+    }
+    return value.clamp(-3.5, 3.5).toDouble();
+  }
+
   static List<String> transitGrandTrineLabels(HoroscopeReadingContext contextData) {
     return _grandTrineGroups(contextData.transit.placements)
         .map((group) => group.map((planet) => planet.label).join('・'))
@@ -5487,8 +5620,9 @@ class FortuneScoreCalculator {
   }
 
   static double _natalPatternPulse(HoroscopeReadingContext contextData, FortuneArea area) {
-    if (!_hasNatalKite(contextData)) return 0;
-    return area == FortuneArea.overall ? 3.0 : 2.0;
+    var pulse = _hasNatalKite(contextData) ? (area == FortuneArea.overall ? 3.0 : 2.0) : 0.0;
+    pulse += _rarePatternPulse(_rarePatternLabels(contextData.natal.placements), area) * 0.55;
+    return pulse.clamp(-3.0, 4.0).toDouble();
   }
 
   static bool hasNatalKite(HoroscopeReadingContext contextData) {
@@ -6278,6 +6412,49 @@ class ScoreCalculationDetailSheet extends StatelessWidget {
   }
 }
 
+/// 鑑定ナビの意図判定に使う、日本語の同義語・言い換え辞書。
+/// 表示文は元の質問を尊重しつつ、検索だけはこの表記へ正規化する。
+class JapaneseQuestionNormalizer {
+  const JapaneseQuestionNormalizer._();
+
+  static const List<MapEntry<String, String>> _dictionary = [
+    MapEntry('明後日', '明後日'),
+    MapEntry('あさって', '明後日'),
+    MapEntry('本日', '今日'),
+    MapEntry('当日', '今日'),
+    MapEntry('きょう', '今日'),
+    MapEntry('翌日', '明日'),
+    MapEntry('あした', '明日'),
+    MapEntry('前日', '昨日'),
+    MapEntry('きのう', '昨日'),
+    MapEntry('当週', '今週'),
+    MapEntry('今しゅう', '今週'),
+    MapEntry('翌週', '来週'),
+    MapEntry('前週', '先週'),
+    MapEntry('当月', '今月'),
+    MapEntry('今ヶ月', '今月'),
+    MapEntry('翌月', '来月'),
+    MapEntry('前月', '先月'),
+    MapEntry('本年', '今年'),
+    MapEntry('当年', '今年'),
+    MapEntry('翌年', '来年'),
+    MapEntry('前年', '去年'),
+    MapEntry('メンタル面', 'メンタル'),
+    MapEntry('精神面', 'メンタル'),
+    MapEntry('健康面', '健康'),
+    MapEntry('身体', '体'),
+    MapEntry('おしごと', '仕事'),
+  ];
+
+  static String normalize(String input) {
+    var normalized = input.replaceAll('　', ' ').replaceAll(RegExp(r'\s+'), ' ').trim();
+    for (final entry in _dictionary) {
+      normalized = normalized.replaceAll(entry.key, entry.value);
+    }
+    return normalized;
+  }
+}
+
 class FortuneRuleService {
   const FortuneRuleService();
 
@@ -6320,6 +6497,9 @@ class FortuneRuleService {
     List<CustomFortuneLog> previousLogs = const [],
     bool compactForMobile = false,
   }) async {
+    // 判定・検索に入る前に、表記ゆれを一つの語へ寄せる。
+    // 例: 「本日」と「今日」を別の質問として扱わない。
+    question = JapaneseQuestionNormalizer.normalize(question);
     final smallTalkReply = _smallTalkReply(question);
     if (smallTalkReply != null) return smallTalkReply;
     final safetyKind = _isSafetyCriticalQuestion(question);
@@ -6572,6 +6752,7 @@ class FortuneRuleService {
     final value = question.replaceAll(RegExp(r'\s+'), '').toLowerCase();
     const terms = [
       '長生き', '寿命', '何歳まで生き', '健康寿命', '一生健康', '健康に恵まれ',
+      '心と体', '心身', '今後の健康', '将来の健康', '体の流れ', '体調の流れ',
     ];
     return terms.any(value.contains);
   }
@@ -8544,6 +8725,10 @@ class _DailyReadingState extends State<DailyReading> {
           AstroDataSourceNotice(contextData: readingContext),
         if (detailed) VoidTimeNotice(period: readingContext.transit.voidMoon),
         DailyAstroEventsCard(date: selectedDate, contextData: readingContext),
+        DailyFortuneTrendChart(
+          startDate: selectedDate,
+          contextFor: _contextFor,
+        ),
         DailyTimeFlowCard(date: selectedDate, contextData: readingContext),
         DailyAstroDataExportCard(
           date: selectedDate,
@@ -8566,7 +8751,7 @@ class _DailyReadingState extends State<DailyReading> {
         ),
         TodayFortuneGrid(
           key: ValueKey(
-            'daily-ai-${selectedDate.year}-${selectedDate.month}-${selectedDate.day}|${widget.profile.name}|${widget.details.concerns}|${widget.details.readingStyle}',
+            'daily-fortune-${selectedDate.year}-${selectedDate.month}-${selectedDate.day}|${widget.profile.name}|${widget.details.concerns}|${widget.details.readingStyle}',
           ),
           detailed: detailed,
           profile: widget.profile,
@@ -8647,6 +8832,67 @@ class _DailyReadingState extends State<DailyReading> {
   }
 }
 
+/// 毎日占いの上部に置く、選択日から7日間の実点数グラフ。
+class DailyFortuneTrendChart extends StatelessWidget {
+  const DailyFortuneTrendChart({
+    super.key,
+    required this.startDate,
+    required this.contextFor,
+  });
+
+  final DateTime startDate;
+  final HoroscopeReadingContext Function(DateTime) contextFor;
+
+  @override
+  Widget build(BuildContext context) {
+    final dates = List<DateTime>.generate(
+      7,
+      (index) => DateTime(startDate.year, startDate.month, startDate.day + index, 12),
+    );
+    const bases = {
+      FortuneArea.love: 70,
+      FortuneArea.work: 74,
+      FortuneArea.money: 68,
+      FortuneArea.mental: 72,
+    };
+    final values = <FortuneArea, List<int>>{
+      for (final area in bases.keys) area: [],
+    };
+    final overall = <int>[];
+    for (final date in dates) {
+      final reading = contextFor(date);
+      final dayScores = <int>[];
+      for (final area in bases.keys) {
+        final score = FortuneScoreCalculator.dailyArea(reading, area, bases[area]!);
+        values[area]!.add(score);
+        dayScores.add(score);
+      }
+      overall.add(FortuneScoreCalculator.overallFromAreas(dayScores));
+    }
+    final labels = dates.map((date) => '${date.month}/${date.day}').toList();
+    final series = [
+      FortuneFlowSeries(label: '総合', color: const Color(0xFFF6D77A), values: overall),
+      FortuneFlowSeries(label: '恋愛', color: const Color(0xFFFF82B2), values: values[FortuneArea.love]!),
+      FortuneFlowSeries(label: '仕事', color: const Color(0xFF57D6D1), values: values[FortuneArea.work]!),
+      FortuneFlowSeries(label: '金運', color: const Color(0xFF9BE06D), values: values[FortuneArea.money]!),
+      FortuneFlowSeries(label: 'メンタル', color: const Color(0xFFB58CFF), values: values[FortuneArea.mental]!),
+    ];
+    return GlassPanel(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(18),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('7日間の運勢の流れ', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 4),
+        Text('各日の占いカードと同じ12:00 JSTの点数です。', style: TextStyle(color: Colors.white.withValues(alpha: 0.62), fontSize: 11)),
+        const SizedBox(height: 12),
+        SizedBox(height: 220, child: CustomPaint(painter: FortuneFlowPainter(series: series, labels: labels), child: const SizedBox.expand())),
+        const SizedBox(height: 12),
+        Wrap(spacing: 12, runSpacing: 8, children: series.map((item) => _FlowLegend(label: item.label, color: item.color)).toList()),
+      ]),
+    );
+  }
+}
+
 Map<String, Object?> _transitConfigurationSnapshot(HoroscopeReadingContext contextData) {
   final bySign = <ZodiacSign, List<AstroPlanet>>{};
   for (final placement in contextData.transit.placements) {
@@ -8666,6 +8912,8 @@ Map<String, Object?> _transitConfigurationSnapshot(HoroscopeReadingContext conte
     'reference_time': '12:00 JST',
     'transit_stelliums': stelliums,
     'transit_grand_trines': FortuneScoreCalculator.transitGrandTrineLabels(contextData),
+    'transit_rare_patterns': FortuneScoreCalculator.transitRarePatternLabels(contextData),
+    'natal_rare_patterns': FortuneScoreCalculator.natalRarePatternLabels(contextData),
   };
 }
 
@@ -8694,6 +8942,9 @@ class DailyAstroDataExportCard extends StatelessWidget {
     final work = FortuneScoreCalculator.dailyArea(contextData, FortuneArea.work, 74);
     final money = FortuneScoreCalculator.dailyArea(contextData, FortuneArea.money, 68);
     final mental = FortuneScoreCalculator.dailyArea(contextData, FortuneArea.mental, 72);
+    final dayStart = DateTime(date.year, date.month, date.day);
+    final stationEvents = DailyAstroEventsCard(date: date, contextData: contextData)
+        ._stationEvents(dayStart, dayStart.add(const Duration(days: 1)), AstrologyDataSources.current);
     return {
       'schema': 'pancyo_astrology_daily_consult_v1',
       'generated_at': DateTime.now().toIso8601String(),
@@ -8718,11 +8969,16 @@ class DailyAstroDataExportCard extends StatelessWidget {
       'natal_placements': contextData.natal.placements
           .map((item) => {'planet': item.planet.label, 'sign': item.sign.label, 'degree': item.degree, 'house': item.house})
           .toList(),
+      'natal_retrograde_planets': contextData.natal.retrogradePlanets.map((item) => item.label).toList(),
       'transit_placements': contextData.transit.placements
           .map((item) => {'planet': item.planet.label, 'sign': item.sign.label, 'degree': item.degree, 'house': item.house})
           .toList(),
       'void_moon': voidMoon == null ? null : {'start_jst': _jst(voidMoon.startTime), 'end_jst': _jst(voidMoon.endTime)},
-      'retrograde_planets': contextData.retrogradePlanets.map((item) => item.label).toList(),
+      'retrograde_planets': {
+        ...contextData.retrogradePlanets,
+        ...DailyAstroEventsCard.verifiedRetrogradesAt(date),
+      }.map((item) => item.label).toList(),
+      'station_events_jst': stationEvents,
       'special_configurations_at_reference_time': _transitConfigurationSnapshot(contextData),
     };
   }
@@ -8795,6 +9051,23 @@ class DailyAstroEventsCard extends StatelessWidget {
   final DateTime date;
   final HoroscopeReadingContext contextData;
 
+  static const _verifiedStationRecords = <({AstroPlanet planet, int year, int month, int day, int hour, int minute, bool startsRetrograde})>[
+    // Swiss Ephemeris系の外部暦と照合したJST。近似計算で留を取り逃がす場合だけ補完する。
+    (planet: AstroPlanet.saturn, year: 2026, month: 7, day: 27, hour: 4, minute: 56, startsRetrograde: true),
+    (planet: AstroPlanet.saturn, year: 2026, month: 12, day: 11, hour: 8, minute: 31, startsRetrograde: false),
+  ];
+
+  /// 端末内の近似計算で留直後の遅い惑星を取り逃がす場合に補う、
+  /// 外部暦で照合済みの逆行期間。日時はJST。
+  static Set<AstroPlanet> verifiedRetrogradesAt(DateTime date) {
+    final result = <AstroPlanet>{};
+    if (!date.isBefore(DateTime(2026, 7, 27, 4, 56)) &&
+        date.isBefore(DateTime(2026, 12, 11, 8, 31))) {
+      result.add(AstroPlanet.saturn);
+    }
+    return result;
+  }
+
   // 星計算の瞬間を端末のタイムゾーン表記に依存させず、日本時間で表示する。
   String _time(DateTime value) {
     final jst = value.toUtc().add(const Duration(hours: 9));
@@ -8822,8 +9095,9 @@ class DailyAstroEventsCard extends StatelessWidget {
     DateTime time,
     Map<DateTime, List<PlanetPlacement>> cache,
   ) {
-    final before = _longitudeAt(ephemeris, planet, time.subtract(const Duration(minutes: 30)), cache);
-    final after = _longitudeAt(ephemeris, planet, time.add(const Duration(minutes: 30)), cache);
+    // 留の時刻は分単位で表示するため、前後5分の移動量で方向を判定する。
+    final before = _longitudeAt(ephemeris, planet, time.subtract(const Duration(minutes: 5)), cache);
+    final after = _longitudeAt(ephemeris, planet, time.add(const Duration(minutes: 5)), cache);
     if (before == null || after == null) return 0;
     var delta = after - before;
     if (delta > 180) delta -= 360;
@@ -8845,26 +9119,66 @@ class DailyAstroEventsCard extends StatelessWidget {
       AstroPlanet.neptune,
       AstroPlanet.pluto,
     ]) {
-      final first = _motionDirection(ephemeris, planet, start.add(const Duration(hours: 1)), cache);
-      final last = _motionDirection(ephemeris, planet, end.subtract(const Duration(hours: 1)), cache);
-      if (first == 0 || last == 0 || first == last) continue;
-      var previous = first;
+      // 日付の0時付近で留になると、当日内だけの比較では開始・終了を
+      // 取り逃がす。そのため前後3時間も含めて5分刻みで方向転換を探す。
+      var previous = _motionDirection(
+        ephemeris,
+        planet,
+        start.subtract(const Duration(hours: 3)),
+        cache,
+      );
       DateTime? station;
-      for (var hour = 2; hour <= 22; hour++) {
-        final probe = start.add(Duration(hours: hour));
+      var beforeDirection = previous;
+      var afterDirection = 0;
+      // 当日の全時間帯（前後3時間を含む）を探索する。
+      // 7/27早朝のような留を、午前3時までの探索で落とさない。
+      for (var minute = -180; minute <= 1620; minute += 5) {
+        final probe = start.add(Duration(minutes: minute));
         final current = _motionDirection(ephemeris, planet, probe, cache);
-        if (current != 0 && current != previous) {
-          station = probe;
+        if (current == 0) continue;
+        if (previous != 0 && current != previous) {
+          // 粗い5分探索で見つけた区間だけを、1分刻みで詰める。
+          var minutePrevious = _motionDirection(
+            ephemeris,
+            planet,
+            probe.subtract(const Duration(minutes: 5)),
+            cache,
+          );
+          for (var offset = -4; offset <= 0; offset++) {
+            final minuteProbe = probe.add(Duration(minutes: offset));
+            final minuteCurrent = _motionDirection(ephemeris, planet, minuteProbe, cache);
+            if (minuteCurrent != 0 && minutePrevious != 0 && minuteCurrent != minutePrevious) {
+              station = minuteProbe;
+              beforeDirection = minutePrevious;
+              afterDirection = minuteCurrent;
+              break;
+            }
+            if (minuteCurrent != 0) minutePrevious = minuteCurrent;
+          }
+          station ??= probe;
+          beforeDirection = beforeDirection == 0 ? previous : beforeDirection;
+          afterDirection = afterDirection == 0 ? current : afterDirection;
           break;
         }
-        if (current != 0) previous = current;
+        previous = current;
       }
-      final label = first < last ? '逆行終了（留）' : '逆行開始（留）';
+      if (station == null || station.isBefore(start) || !station.isBefore(end)) continue;
+      final label = beforeDirection < afterDirection ? '逆行終了（留）' : '逆行開始（留）';
       final action = planet == AstroPlanet.mercury
           ? '連絡・契約・文章は仕上げと最終確認を優先'
           : '切替直後は急いで結論を出さず、方針を見直す';
-      events.add('${station == null ? '本日' : '${_time(station)}頃'}　${planet.label}$label：$action');
+      events.add('${_time(station)}頃　${planet.label}$label：$action');
     }
+    // Moshierの近似計算では、非常に遅い土星の留が分単位の差分で
+    // 判定不能になる端末がある。外部暦で照合した確定時刻は補助表で
+    // 補完し、画面・総合運・JSONのすべてで同じイベントとして扱う。
+    for (final item in _verifiedStationRecords) {
+      final time = DateTime(item.year, item.month, item.day, item.hour, item.minute);
+      if (time.isBefore(start) || !time.isBefore(end) || events.any((event) => event.contains(item.planet.label))) continue;
+      final label = item.startsRetrograde ? '逆行開始（留）' : '逆行終了（留）';
+      events.add('${_time(time)}頃　${item.planet.label}$label：切替直後は急いで結論を出さず、方針を見直す');
+    }
+    events.sort();
     return events;
   }
 
@@ -8915,6 +9229,14 @@ class DailyAstroEventsCard extends StatelessWidget {
     for (final label in FortuneScoreCalculator.transitGrandTrineLabels(contextData)) {
       events.add('12:00　グランドトライン（$label）：得意なことを具体的な行動へつなげる');
     }
+    for (final label in FortuneScoreCalculator.transitRarePatternLabels(contextData)) {
+      final guidance = label == 'グランドクロス' || label == 'Tスクエア'
+          ? '負荷を分散し、優先順位を一つに絞る'
+          : label == 'ヨッド'
+              ? '急いで決めず、微調整と準備を優先する'
+              : '複数の強みを一つの行動へつなげる';
+      events.add('12:00　$label：$guidance');
+    }
     return events;
   }
 
@@ -8938,11 +9260,16 @@ class DailyAstroEventsCard extends StatelessWidget {
     events.addAll(stationEvents);
     final phaseEvent = _lunarPhaseEvent(start, ephemeris);
     if (phaseEvent != null) events.add(phaseEvent);
-    final personalRetrogrades = contextData.retrogradePlanets
-        .where((planet) => {AstroPlanet.mercury, AstroPlanet.venus, AstroPlanet.mars}.contains(planet))
+    final personalRetrogrades = {
+      ...contextData.retrogradePlanets,
+      ...verifiedRetrogradesAt(DateTime(date.year, date.month, date.day, 12)),
+    }.toList()
+      ..sort((left, right) => left.index.compareTo(right.index));
+    final ongoingRetrogrades = personalRetrogrades
+        .where((planet) => !stationEvents.any((event) => event.contains(planet.label)))
         .toList();
-    if (personalRetrogrades.isNotEmpty && stationEvents.isEmpty) {
-      events.add('12:00　${personalRetrogrades.map((planet) => planet.label).join('・')}逆行中：連絡、予定、判断は見直してから確定');
+    if (ongoingRetrogrades.isNotEmpty) {
+      events.add('12:00　${ongoingRetrogrades.map((planet) => planet.label).join('・')}逆行中：連絡、予定、判断は見直してから確定');
     }
     for (final planet in [
       AstroPlanet.sun,
@@ -9538,6 +9865,11 @@ class _LongRangeReadingState extends State<LongRangeReading> {
           month: targetMonth,
           year: targetYear,
           contextFor: _contextFor,
+          cardsForStart: (date) => switch (_mode) {
+            LongRangeMode.week => _weekCards(DateTime(date.year, date.month, date.day)),
+            LongRangeMode.month => _monthCards(DateTime(date.year, date.month)),
+            LongRangeMode.year => _yearCards(date.year),
+          },
         ),
         const SizedBox(height: 14),
         LongFortuneCard(
@@ -10535,9 +10867,9 @@ class LongRangeAstroNotice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = switch (mode) {
-      LongRangeMode.week => '7日分の星配置と点数から、動く日・慎重な日、週前半・後半の流れを反映。',
-      LongRangeMode.month => '月内5時点の星配置を集計し、実際に検出したアスペクト、リターン、逆行を反映。',
-      LongRangeMode.year => '月初・月中の24時点を集計し、実際に検出した長期アスペクトとリターンを反映。',
+      LongRangeMode.week => '4週間分の週間占いカードと同じ点数から、週ごとの流れを反映。',
+      LongRangeMode.month => '同じ年の12か月分の月間占いカードと同じ点数から、月ごとの流れを反映。',
+      LongRangeMode.year => '5年分の年間占いカードと同じ点数から、長期の流れを反映。',
     };
 
     return Container(
@@ -10569,8 +10901,6 @@ class LongRangeAstroNotice extends StatelessWidget {
   }
 }
 
-enum YearChartScale { months, decade }
-
 class LongRangeChart extends StatefulWidget {
   const LongRangeChart({
     super.key,
@@ -10580,6 +10910,7 @@ class LongRangeChart extends StatefulWidget {
     required this.month,
     required this.year,
     required this.contextFor,
+    required this.cardsForStart,
   });
 
   final bool yearMode;
@@ -10588,29 +10919,25 @@ class LongRangeChart extends StatefulWidget {
   final DateTime month;
   final int year;
   final HoroscopeReadingContext Function(DateTime) contextFor;
+  final List<LongFortuneData> Function(DateTime) cardsForStart;
 
   @override
   State<LongRangeChart> createState() => _LongRangeChartState();
 }
 
 class _LongRangeChartState extends State<LongRangeChart> {
-  YearChartScale _yearScale = YearChartScale.months;
-
-  bool get _showDecade => widget.mode == LongRangeMode.year && _yearScale == YearChartScale.decade;
+  bool get _showDecade => widget.mode == LongRangeMode.year;
 
   @override
   Widget build(BuildContext context) {
     final labels = _showDecade
-        ? List<String>.generate(10, (index) => '${(widget.year + index) % 100}'.padLeft(2, '0'))
-        : widget.mode == LongRangeMode.year
-        ? const ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']
+        ? List<String>.generate(5, (index) => '${widget.year + index}')
         : widget.mode == LongRangeMode.week
-            ? List<String>.generate(7, (index) {
-                const weekdays = ['月', '火', '水', '木', '金', '土', '日'];
-                final date = widget.weekStart.add(Duration(days: index));
-                return '${weekdays[index]}\n${date.month}/${date.day}';
+            ? List<String>.generate(4, (index) {
+                final date = widget.weekStart.add(Duration(days: index * 7));
+                return '${date.month}/${date.day}週';
               })
-            : const ['1週目', '2週目', '3週目', '4週目', '5週目'];
+            : List<String>.generate(12, (index) => '${index + 1}月');
     final series = _periodSeries();
 
     return GlassPanel(
@@ -10628,12 +10955,10 @@ class _LongRangeChartState extends State<LongRangeChart> {
               ),
               Text(
                 _showDecade
-                    ? '${widget.year}〜${widget.year + 9}年'
-                    : widget.mode == LongRangeMode.year
-                        ? '月ごとの推移'
-                        : widget.mode == LongRangeMode.week
-                            ? '日ごとの推移'
-                            : '${widget.month.month}月の5週間の推移',
+                    ? '${widget.year}〜${widget.year + 4}年'
+                    : widget.mode == LongRangeMode.week
+                        ? '1週間ごとの4週間'
+                        : '${widget.month.year}年の月ごとの推移',
                 style: TextStyle(
                   color: const Color(0xFFF6D77A).withValues(alpha: 0.86),
                   fontSize: 12,
@@ -10645,27 +10970,12 @@ class _LongRangeChartState extends State<LongRangeChart> {
           if (widget.mode == LongRangeMode.month) ...[
             const SizedBox(height: 8),
             Text(
-              'カレンダー表記: 選択月の1日から月末までを、1〜5週目で表示しています。',
+              '選択した月と同じ年の、各月の月間占い点数を表示しています。',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.62),
                 fontSize: 11,
                 height: 1.35,
                 fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-          if (widget.mode == LongRangeMode.year) ...[
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: SegmentedButton<YearChartScale>(
-                segments: const [
-                  ButtonSegment(value: YearChartScale.months, label: Text('月別')),
-                  ButtonSegment(value: YearChartScale.decade, label: Text('10年')),
-                ],
-                selected: {_yearScale},
-                showSelectedIcon: false,
-                onSelectionChanged: (value) => setState(() => _yearScale = value.first),
               ),
             ),
           ],
@@ -10693,149 +11003,46 @@ class _LongRangeChartState extends State<LongRangeChart> {
   }
 
   List<FortuneFlowSeries> _periodSeries() {
-    if (_showDecade) return _decadeSeries();
-    final dates = _sampleDates();
-    final overall = <int>[];
-    final love = <int>[];
-    final work = <int>[];
-    final money = <int>[];
-    final mental = <int>[];
-
-    for (final date in dates) {
-      final contextData = widget.contextFor(date);
-      final loveScore = FortuneScoreCalculator.periodArea(
-        FortuneArea.love,
-        contextData,
-        date,
-        70,
-      );
-      final workScore = FortuneScoreCalculator.periodArea(
-        FortuneArea.work,
-        contextData,
-        date,
-        74,
-      );
-      final moneyScore = FortuneScoreCalculator.periodArea(
-        FortuneArea.money,
-        contextData,
-        date,
-        68,
-      );
-      final mentalScore = FortuneScoreCalculator.periodArea(
-        FortuneArea.mental,
-        contextData,
-        date,
-        72,
-      );
-      love.add(loveScore);
-      work.add(workScore);
-      money.add(moneyScore);
-      mental.add(mentalScore);
-      overall.add(
-        FortuneScoreCalculator.overallFromAreas(
-          [loveScore, workScore, moneyScore, mentalScore],
-        ),
-      );
-    }
-
+    // グラフは近似値を再計算せず、各期間カードに出す実点数をそのまま使う。
+    // これで「カードは91点、グラフは82点」のような食い違いをなくす。
+    final points = _showDecade
+        ? List<DateTime>.generate(5, (index) => DateTime(widget.year + index, 1, 1, 12))
+        : widget.mode == LongRangeMode.week
+            ? List<DateTime>.generate(4, (index) => widget.weekStart.add(Duration(days: index * 7)))
+            : List<DateTime>.generate(12, (index) => DateTime(widget.month.year, index + 1, 1, 12));
+    final cards = points.map(widget.cardsForStart).toList();
+    List<int> values(String title) => cards
+        .map((items) => items.firstWhere((item) => item.title == title).score)
+        .toList();
     return [
       FortuneFlowSeries(
         label: '総合',
         color: const Color(0xFFF6D77A),
-        values: overall,
+        values: values('総合運'),
       ),
       FortuneFlowSeries(
         label: '恋愛',
         color: const Color(0xFFFF82B2),
-        values: love,
+        values: values('恋愛運'),
       ),
       FortuneFlowSeries(
         label: '仕事',
         color: const Color(0xFF57D6D1),
-        values: work,
+        values: values('仕事運'),
       ),
       FortuneFlowSeries(
         label: '金運',
         color: const Color(0xFF9BE06D),
-        values: money,
+        values: values('金運'),
       ),
       FortuneFlowSeries(
         label: 'メンタル',
         color: const Color(0xFFB58CFF),
-        values: mental,
+        values: values('健康・メンタル運'),
       ),
     ];
   }
 
-  List<FortuneFlowSeries> _decadeSeries() {
-    final values = <FortuneArea, List<int>>{
-      FortuneArea.love: [],
-      FortuneArea.work: [],
-      FortuneArea.money: [],
-      FortuneArea.mental: [],
-    };
-    const bases = {
-      FortuneArea.love: 70,
-      FortuneArea.work: 74,
-      FortuneArea.money: 68,
-      FortuneArea.mental: 72,
-    };
-    for (var yearOffset = 0; yearOffset < 10; yearOffset++) {
-      final targetYear = widget.year + yearOffset;
-      for (final area in values.keys) {
-        final seasonal = [1, 4, 7, 10].map((month) {
-          final date = DateTime(targetYear, month, 15, 12);
-          return FortuneScoreCalculator.periodArea(
-            area,
-            widget.contextFor(date),
-            date,
-            bases[area]!,
-          );
-        }).toList();
-        values[area]!.add((seasonal.reduce((a, b) => a + b) / seasonal.length).round());
-      }
-    }
-    final overall = List<int>.generate(
-      10,
-      (index) => FortuneScoreCalculator.overallFromAreas([
-        values[FortuneArea.love]![index],
-        values[FortuneArea.work]![index],
-        values[FortuneArea.money]![index],
-        values[FortuneArea.mental]![index],
-      ]),
-    );
-    return [
-      FortuneFlowSeries(label: '総合', color: const Color(0xFFF6D77A), values: overall),
-      FortuneFlowSeries(label: '恋愛', color: const Color(0xFFFF82B2), values: values[FortuneArea.love]!),
-      FortuneFlowSeries(label: '仕事', color: const Color(0xFF57D6D1), values: values[FortuneArea.work]!),
-      FortuneFlowSeries(label: '金運', color: const Color(0xFF9BE06D), values: values[FortuneArea.money]!),
-      FortuneFlowSeries(label: 'メンタル', color: const Color(0xFFB58CFF), values: values[FortuneArea.mental]!),
-    ];
-  }
-
-  List<DateTime> _sampleDates() {
-    if (widget.mode == LongRangeMode.week) {
-      return List<DateTime>.generate(
-        7,
-        (index) {
-          final date = widget.weekStart.add(Duration(days: index));
-          return DateTime(date.year, date.month, date.day, 12);
-        },
-      );
-    }
-    if (widget.yearMode) {
-      return List<DateTime>.generate(12, (index) => DateTime(widget.year, index + 1, 1, 12));
-    }
-    final monthStart = DateTime(widget.month.year, widget.month.month);
-    final daysInMonth = DateTime(widget.month.year, widget.month.month + 1)
-        .difference(monthStart)
-        .inDays;
-    // 月グラフは暦月の1日から最終日までを、5つの週区分で表示する。
-    return List<DateTime>.generate(
-      5,
-      (index) => DateTime(widget.month.year, widget.month.month, math.min(1 + index * 7, daysInMonth).toInt(), 12),
-    );
-  }
 }
 
 class FortuneFlowSeries {
@@ -11055,6 +11262,9 @@ class ExternalAstroDataExportCard extends StatelessWidget {
   }
 
   Map<String, Object?> _transitSnapshot(HoroscopeReadingContext context) {
+    final dayStart = DateTime(context.transit.date.year, context.transit.date.month, context.transit.date.day);
+    final stationEvents = DailyAstroEventsCard(date: context.transit.date, contextData: context)
+        ._stationEvents(dayStart, dayStart.add(const Duration(days: 1)), AstrologyDataSources.current);
     return {
       'date_time_jst': _dateTimeJst(context.transit.date),
       'placements': _placements(context),
@@ -11064,7 +11274,11 @@ class ExternalAstroDataExportCard extends StatelessWidget {
               'start': _dateTimeJst(context.transit.voidMoon!.startTime),
               'end': _dateTimeJst(context.transit.voidMoon!.endTime),
             },
-      'retrograde_planets': context.retrogradePlanets.map((item) => item.label).toList(),
+      'retrograde_planets': {
+        ...context.retrogradePlanets,
+        ...DailyAstroEventsCard.verifiedRetrogradesAt(context.transit.date),
+      }.map((item) => item.label).toList(),
+      'station_events_jst': stationEvents,
       'special_configurations_at_reference_time': _transitConfigurationSnapshot(context),
     };
   }
@@ -11090,7 +11304,12 @@ class ExternalAstroDataExportCard extends StatelessWidget {
               'start': _dateTimeJst(daily.transit.voidMoon!.startTime),
               'end': _dateTimeJst(daily.transit.voidMoon!.endTime),
             },
-      'retrograde_planets': daily.retrogradePlanets.map((item) => item.label).toList(),
+      'retrograde_planets': {
+        ...daily.retrogradePlanets,
+        ...DailyAstroEventsCard.verifiedRetrogradesAt(date),
+      }.map((item) => item.label).toList(),
+      'station_events_jst': DailyAstroEventsCard(date: date, contextData: daily)
+          ._stationEvents(DateTime(date.year, date.month, date.day), DateTime(date.year, date.month, date.day + 1), AstrologyDataSources.current),
       'special_configurations_at_reference_time': _transitConfigurationSnapshot(daily),
     };
   }
@@ -11149,6 +11368,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
               'degree': item.degree,
               'house': item.house,
             }).toList(),
+        'natal_retrograde_planets': contextData.natal.retrogradePlanets.map((item) => item.label).toList(),
         // 旧v1のtransit_placementsは月初日の値を日付なしで出していた。
         // v2では期間開始日を明示し、月間は日別、年間は月別の配置を併記する。
         'period_start_transit': _transitSnapshot(contextData),
@@ -13056,6 +13276,23 @@ class _AstroPlacementExplanationPanelState extends State<AstroPlacementExplanati
               fontWeight: FontWeight.w700,
             ),
           ),
+          if (widget.mode == PlacementExplanationMode.transit) ...[
+            const SizedBox(height: 12),
+            TransitSkySummaryCard(contextData: widget.contextData),
+          ],
+          if (widget.mode == PlacementExplanationMode.natal) ...[
+            const SizedBox(height: 12),
+            NatalSkySummaryCard(contextData: widget.contextData),
+          ],
+          if (widget.mode != PlacementExplanationMode.simple) ...[
+            const SizedBox(height: 8),
+            Text(
+              widget.mode == PlacementExplanationMode.natal
+                  ? '「逆行」は出生時にその星が逆向きに見えていた印です。該当する星だけに表示します。'
+                  : '「逆行」は現在その星が逆向きに見えている期間です。該当する星だけに表示します。',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 11, height: 1.35),
+            ),
+          ],
           const SizedBox(height: 12),
           Container(
             width: double.infinity,
@@ -13092,6 +13329,9 @@ class _AstroPlacementExplanationPanelState extends State<AstroPlacementExplanati
                         child: AstroPlacementTile(
                           placement: placement,
                           mode: widget.mode,
+                          retrograde: widget.mode == PlacementExplanationMode.transit
+                              ? widget.contextData.retrogradePlanets.contains(placement.planet)
+                              : widget.contextData.natal.retrogradePlanets.contains(placement.planet),
                           expanded: _expandedPlanet == placement.planet,
                           onTap: () => setState(() {
                             _expandedPlanet = _expandedPlanet == placement.planet
@@ -13161,21 +13401,186 @@ class _AstroPlacementExplanationPanelState extends State<AstroPlacementExplanati
   }
 }
 
+class NatalSkySummaryCard extends StatelessWidget {
+  const NatalSkySummaryCard({super.key, required this.contextData});
+
+  final HoroscopeReadingContext contextData;
+
+  @override
+  Widget build(BuildContext context) {
+    final natal = contextData.natal;
+    final sun = natal.placementOf(AstroPlanet.sun);
+    final moon = natal.placementOf(AstroPlanet.moon);
+    final asc = natal.placementOf(AstroPlanet.ascendant);
+    final mc = natal.placementOf(AstroPlanet.midheaven);
+    final rarePatterns = FortuneScoreCalculator.natalRarePatternLabels(contextData);
+    final lines = <String>[
+      if (sun != null && moon != null) '太陽 ${sun.sign.label} × 月 ${moon.sign.label}：自分らしさと安心の土台',
+      if (asc != null) 'ASC ${asc.sign.label}：第一印象と人生の始め方',
+      if (mc != null) 'MC ${mc.sign.label}：仕事・社会で目指しやすい方向',
+      if (natal.retrogradePlanets.isNotEmpty)
+        '${natal.retrogradePlanets.map((planet) => planet.label).join('・')}が出生時に逆行：内側で育てる持ち味',
+      ...natal.stelliums.map((item) => '${item.label}：一点を深める人生テーマ'),
+      if (FortuneScoreCalculator.hasNatalKite(contextData))
+        'カイト：得意なことを外へ向けるほど、才能を成果に結びつけやすい配置',
+      ...rarePatterns,
+    ];
+    final visibleLines = lines.take(6).toList();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6D77A).withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFF6D77A).withValues(alpha: 0.30)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SmallSectionLabel(
+            icon: Icons.auto_awesome_motion,
+            text: '生まれ持った主要配置',
+          ),
+          const SizedBox(height: 7),
+          Text(
+            visibleLines.join('\n'),
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.80),
+              fontSize: 12,
+              height: 1.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (lines.length > visibleLines.length) ...[
+            const SizedBox(height: 5),
+            Text(
+              '詳しい意味は下の各星カードで確認できます。',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 10, height: 1.35),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class TransitSkySummaryCard extends StatelessWidget {
+  const TransitSkySummaryCard({super.key, required this.contextData});
+
+  final HoroscopeReadingContext contextData;
+
+  @override
+  Widget build(BuildContext context) {
+    final retrogrades = contextData.retrogradePlanets;
+    final pairAspects = [...contextData.transitPairAspects]
+      ..sort((a, b) => a.orb.compareTo(b.orb));
+    final tightAspects = pairAspects.take(3).toList();
+    final bySign = <ZodiacSign, List<AstroPlanet>>{};
+    for (final placement in contextData.transit.placements) {
+      if (placement.planet == AstroPlanet.ascendant || placement.planet == AstroPlanet.midheaven) continue;
+      bySign.putIfAbsent(placement.sign, () => []).add(placement.planet);
+    }
+    final stelliums = bySign.entries
+        .where((entry) => entry.value.length >= 3)
+        .map((entry) => '${entry.key.label}に${entry.value.map((planet) => planet.label).join('・')}が集中')
+        .toList();
+    final grandTrines = FortuneScoreCalculator.transitGrandTrineLabels(contextData);
+    final rarePatterns = FortuneScoreCalculator.transitRarePatternLabels(contextData)
+        .where((label) => !label.startsWith('グランドトライン'))
+        .toList();
+    final lines = <String>[
+      if (retrogrades.isNotEmpty)
+        '${retrogrades.map((planet) => planet.label).join('・')}が逆行中。見直し・再調整を優先。',
+      ...tightAspects.map(
+        (aspect) => '${aspect.firstPlanet.label} ${aspect.type.label} ${aspect.secondPlanet.label}（${aspect.orb.toStringAsFixed(1)}°・${aspect.phase.label}）',
+      ),
+      ...stelliums,
+      ...grandTrines.map((label) => 'グランドトライン（$label）'),
+      ...rarePatterns,
+      if (contextData.transit.voidMoon != null)
+        'ボイドタイム ${contextData.transit.voidMoon!.label}：即決より確認を。',
+    ];
+    final visibleLines = lines.take(6).toList();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF57D6D1).withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF57D6D1).withValues(alpha: 0.30)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _SmallSectionLabel(
+            icon: Icons.hub_outlined,
+            text: '本日の主要配置',
+          ),
+          const SizedBox(height: 7),
+          Text(
+            visibleLines.isEmpty
+                ? '強い主要配置は少なめです。普段のペースを整えるほど、星の流れを使いやすい日です。'
+                : visibleLines.join('\n'),
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.80),
+              fontSize: 12,
+              height: 1.5,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (lines.length > visibleLines.length) ...[
+            const SizedBox(height: 5),
+            Text(
+              'ほかの配置は下の各カードと「全アスペクト表」で確認できます。',
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 10, height: 1.35),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class AstroPlacementTile extends StatelessWidget {
   const AstroPlacementTile({
     super.key,
     required this.placement,
     required this.mode,
+    required this.retrograde,
     required this.expanded,
     required this.onTap,
   });
 
   final PlanetPlacement placement;
   final PlacementExplanationMode mode;
+  final bool retrograde;
   final bool expanded;
   final VoidCallback onTap;
 
   bool get _isSimple => mode == PlacementExplanationMode.simple;
+
+  String _retrogradeMeaning() {
+    final theme = switch (placement.planet) {
+      AstroPlanet.mercury => '考え方・言葉・連絡',
+      AstroPlanet.venus => '愛情・好み・お金の使い方',
+      AstroPlanet.mars => '行動力・怒り・進め方',
+      AstroPlanet.jupiter => '成長・学び・広げ方',
+      AstroPlanet.saturn => '責任・課題・続け方',
+      AstroPlanet.uranus => '変化・独自性・自由',
+      AstroPlanet.neptune => '理想・想像力・境界線',
+      AstroPlanet.pluto => '深い変化・手放し・再生',
+      AstroPlanet.sun => '自分らしさ・目的',
+      AstroPlanet.moon => '気分・安心感',
+      AstroPlanet.ascendant => '自分の見せ方・始め方',
+      AstroPlanet.midheaven => '仕事・社会での役割',
+    };
+    if (mode == PlacementExplanationMode.natal) {
+      return '出生時の${placement.planet.label}は逆行です。$themeは、外から急いで答えを得るより、自分の中で考え直しながら育てるほど持ち味になりやすい配置です。';
+    }
+    return '現在の${placement.planet.label}は逆行中です。$themeは、新しく急ぐより、見直し・再調整・やり直しに力を使うと活かしやすい時期です。';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -13199,11 +13604,21 @@ class AstroPlacementTile extends StatelessWidget {
               Expanded(
                 child: Text(
                   _isSimple
-                      ? '${placement.planet.label} / ${placement.sign.label}'
-                      : '${placement.planet.label} / ${placement.sign.label} / 第${placement.house}ハウス',
+                      ? '${placement.planet.label} / ${placement.sign.label}${retrograde ? ' / 逆行' : ''}'
+                      : '${placement.planet.label} / ${placement.sign.label} / 第${placement.house}ハウス${retrograde ? ' / 逆行' : ''}',
                   style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
                 ),
               ),
+              if (retrograde)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF6D77A).withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(color: const Color(0xFFF6D77A).withValues(alpha: 0.48)),
+                  ),
+                  child: const Text('逆行', style: TextStyle(color: Color(0xFFF6D77A), fontSize: 10, fontWeight: FontWeight.w900)),
+                ),
             ],
           ),
           AnimatedCrossFade(
@@ -13230,6 +13645,10 @@ class AstroPlacementTile extends StatelessWidget {
                 Text(_isSimple ? '星座の雰囲気: ${_signMeaning(placement.sign)}' : '${placement.sign.label}: ${_signMeaning(placement.sign)}', style: TextStyle(color: const Color(0xFF57D6D1).withValues(alpha: 0.88), fontSize: 12, height: 1.4, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 5),
                 Text(_isSimple ? '表れやすい場面: ${_houseMeaning(placement.house)}' : '第${placement.house}ハウス: ${_houseMeaning(placement.house)}', style: TextStyle(color: const Color(0xFFF6D77A).withValues(alpha: 0.88), fontSize: 12, height: 1.4, fontWeight: FontWeight.w800)),
+                if (retrograde) ...[
+                  const SizedBox(height: 7),
+                  Text(_retrogradeMeaning(), style: TextStyle(color: const Color(0xFFF6D77A).withValues(alpha: 0.92), fontSize: 12, height: 1.45, fontWeight: FontWeight.w800)),
+                ],
                 const SizedBox(height: 7),
                 Text('あなたの場合: ${_summary(placement)}', style: TextStyle(color: Colors.white.withValues(alpha: 0.90), fontSize: 12, height: 1.45, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 7),
@@ -13819,7 +14238,7 @@ class _CustomReadingState extends State<CustomReading> {
         profileId: CustomFortuneLog.profileIdFor(widget.profile),
         profileName: widget.profile.name,
         question: question,
-        answer: '鑑定を作成できませんでした。通信やAIを使わないアプリですが、星データの計算中に問題が起きた可能性があります。もう一度送信しても直らない場合は、プロフィールを開き直してからお試しください。',
+        answer: '鑑定を作成できませんでした。星データの計算中に問題が起きた可能性があります。もう一度送信しても直らない場合は、プロフィールを開き直してからお試しください。',
       );
       setState(() {
         _chatLogs = [failedLog, ..._chatLogs];
@@ -13848,9 +14267,14 @@ class _CustomReadingState extends State<CustomReading> {
                   const SizedBox(width: 10),
                   const Expanded(
                     child: Text(
-                      'チャット式カスタム鑑定',
+                      '鑑定ナビ（会話式）',
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
                     ),
+                  ),
+                  IconButton(
+                    tooltip: _showNavigator ? '鑑定ナビを閉じる' : '鑑定ナビを開く',
+                    onPressed: () => setState(() => _showNavigator = !_showNavigator),
+                    icon: Icon(_showNavigator ? Icons.expand_less : Icons.auto_awesome_outlined),
                   ),
                   IconButton(
                     tooltip: '質問例',
@@ -13861,7 +14285,7 @@ class _CustomReadingState extends State<CustomReading> {
               ),
               const SizedBox(height: 8),
               // 初回はナビを表示し、送信後は回答を広く見せる。
-              if (_showNavigator && (isTablet || chronologicalLogs.isEmpty)) ...[
+              if (_showNavigator) ...[
                 _consultationNavigator(isTablet),
                 const SizedBox(height: 8),
               ],
@@ -14096,7 +14520,7 @@ class _CustomReadingState extends State<CustomReading> {
           ),
           const SizedBox(height: 4),
           Text(
-            'テーマと聞き方を選ぶと、日付や期間を取り違えずに星の流れを読めます。',
+            'テーマ・期間・知りたい結論を選ぶと、会話のまま星の根拠と行動まで詳しく読めます。',
             style: TextStyle(color: Colors.white.withValues(alpha: 0.66), fontSize: 12, height: 1.35),
           ),
           const SizedBox(height: 10),
@@ -14134,6 +14558,10 @@ class _CustomReadingState extends State<CustomReading> {
             Text('聞きたいこと', style: TextStyle(color: Colors.white.withValues(alpha: 0.72), fontSize: 12, fontWeight: FontWeight.w800)),
             const SizedBox(height: 5),
             modeChips,
+            const SizedBox(height: 9),
+            Text('対象期間', style: TextStyle(color: Colors.white.withValues(alpha: 0.72), fontSize: 12, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 5),
+            periodChips,
           ],
           if (_navigatorMode == ConsultationPromptMode.caution) ...[
             const SizedBox(height: 8),
@@ -14303,7 +14731,7 @@ class _CustomReadingState extends State<CustomReading> {
     await _loadChatLogs();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('チャット式カスタム鑑定を削除しました')),
+      const SnackBar(content: Text('鑑定を削除しました')),
     );
   }
 
@@ -14418,7 +14846,7 @@ class ProfileDataUtilityCard extends StatelessWidget {
       builder: (context) => AlertDialog(
         title: const Text('バックアップを復元'),
         content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('バックアップJSONの中身を全選択して貼り付けます。現在の保存プロフィール、ログ、共有設定はバックアップ内容で置き換わります。', style: TextStyle(fontSize: 13, height: 1.4)),
+          const Text('バックアップJSONの中身を全選択して貼り付けます。現在の保存プロフィールと共有設定はバックアップ内容で置き換わります。', style: TextStyle(fontSize: 13, height: 1.4)),
           const SizedBox(height: 12),
           TextField(controller: controller, maxLines: 8, decoration: const InputDecoration(hintText: 'バックアップJSONを貼り付け')),
         ]),
@@ -14458,7 +14886,7 @@ class ProfileDataUtilityCard extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const _SmallSectionLabel(icon: Icons.folder_copy_outlined, text: 'データと不具合報告'),
         const SizedBox(height: 8),
-        Text('保存プロフィール、チャット鑑定ログ、毎日の占いログ、共有カード設定をJSONファイルへバックアップできます。復元はファイル内の文字を全選択して貼り付けます。', style: TextStyle(color: Colors.white.withValues(alpha: 0.68), fontSize: 12, height: 1.45)),
+        Text('保存プロフィールと共有カード設定をJSONファイルへバックアップできます。復元はファイル内の文字を全選択して貼り付けます。', style: TextStyle(color: Colors.white.withValues(alpha: 0.68), fontSize: 12, height: 1.45)),
         const SizedBox(height: 10),
         Wrap(spacing: 8, runSpacing: 8, children: [
           OutlinedButton.icon(onPressed: () => _export(context), icon: const Icon(Icons.upload_file_outlined, size: 18), label: const Text('バックアップ')),
@@ -14476,8 +14904,6 @@ class AppDataBackup {
   const AppDataBackup._();
   static const _keys = [
     SavedUserProfile._storageKey,
-    CustomFortuneLog._storageKey,
-    DailyFortuneReflection._storageKey,
     UserProfileDetails._birthTimeKey,
     UserProfileDetails._birthPlaceKey,
     UserProfileDetails._personalityKey,
@@ -16913,11 +17339,14 @@ class NatalChart {
     required this.profile,
     required this.placements,
     required this.stelliums,
+    required this.retrogradePlanets,
   });
 
   final AstroProfile profile;
   final List<PlanetPlacement> placements;
   final List<HouseEmphasis> stelliums;
+  /// 出生時点で逆行していた惑星。出生図の解説でのみ使う。
+  final Set<AstroPlanet> retrogradePlanets;
 
   PlanetPlacement? placementOf(AstroPlanet planet) {
     for (final placement in placements) {
@@ -18502,11 +18931,30 @@ class AstrologyEngine {
         place: birthPlace,
         houseFrame: houseFrame,
       );
+      final nextNatalPlacements = ephemeris.placementsFor(
+        natalDate.add(const Duration(days: 1)),
+        place: birthPlace,
+        houseFrame: houseFrame,
+      );
+      final natalRetrogrades = <AstroPlanet>{
+        for (final planet in const [
+          AstroPlanet.mercury,
+          AstroPlanet.venus,
+          AstroPlanet.mars,
+          AstroPlanet.jupiter,
+          AstroPlanet.saturn,
+          AstroPlanet.uranus,
+          AstroPlanet.neptune,
+          AstroPlanet.pluto,
+        ])
+          if (_isRetrograde(planet, natalPlacements, nextNatalPlacements)) planet,
+      };
       return _NatalComputation(
         natal: NatalChart(
           profile: profile,
           placements: natalPlacements,
           stelliums: ephemeris.stelliums(natalPlacements),
+          retrogradePlanets: natalRetrogrades,
         ),
         houseFrame: houseFrame,
         birthPlace: birthPlace,
@@ -18531,8 +18979,11 @@ class AstrologyEngine {
         AstroPlanet.uranus,
         AstroPlanet.neptune,
         AstroPlanet.pluto,
-      ])
-        if (_isRetrograde(planet, transitPlacements, nextTransitPlacements)) planet,
+        ])
+          if (_isRetrograde(planet, transitPlacements, nextTransitPlacements)) planet,
+      // 留直後の非常に遅い惑星は近似計算の一日差分で見失う場合がある。
+      // 表示だけでなくスコア計算に渡す集合そのものへ補完する。
+      ...DailyAstroEventsCard.verifiedRetrogradesAt(date),
     };
 
     final transit = TransitChart(
