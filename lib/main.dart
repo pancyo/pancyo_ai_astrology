@@ -15475,6 +15475,11 @@ class AppLicenseInfoCard extends StatelessWidget {
                 url: 'https://github.com/pancyo/pancyo_ai_astrology',
               ),
               _CreatorLinkButton(
+                icon: Icons.volunteer_activism_outlined,
+                label: '開発を応援する（任意）',
+                url: 'https://ofuse.me/pancyo',
+              ),
+              _CreatorLinkButton(
                 icon: Icons.code_outlined,
                 label: 'Swissソース',
                 url: 'https://github.com/aloistr/swisseph',
