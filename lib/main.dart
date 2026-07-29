@@ -39,8 +39,8 @@ class LegacyDataCleanup {
         'ai_data.source_label', 'ai_data.source_url', 'ai_data.runtime',
         'ai_data.size_bytes', 'ai_data.downloaded_at', 'ai_data.checksum',
         'ai_data.file_path',
-        CustomFortuneLog._storageKey,
-        DailyFortuneReflection._storageKey,
+        'custom_fortune.logs',
+        'daily_fortune_reflections.v1',
       ];
       final modelPath = prefs.getString('ai_data.file_path');
       for (final key in keys) {
@@ -239,8 +239,6 @@ class _BirthInfoScreenState extends State<BirthInfoScreen> {
 
   Future<void> _deleteSavedProfile(SavedUserProfile saved) async {
     await SavedUserProfile.delete(saved.id);
-    await CustomFortuneLog.clear(profileId: saved.id);
-    await DailyFortuneReflection.clear(profileId: saved.id);
     if (!mounted) return;
     setState(() {
       _savedProfilesFuture = SavedUserProfile.loadAll();
@@ -2233,180 +2231,6 @@ class OverallFortuneCard extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-enum DailyReflectionRating { hit('当たった'), mixed('まあまあ'), off('違った');
-  const DailyReflectionRating(this.label);
-  final String label;
-}
-
-class DailyFortuneReflection {
-  const DailyFortuneReflection({required this.profileId, required this.date, required this.rating, required this.note});
-  static const _storageKey = 'daily_fortune_reflections.v1';
-  static const maxEntries = 90;
-  final String profileId;
-  final DateTime date;
-  final DailyReflectionRating rating;
-  final String note;
-
-  String get dateKey => '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  Map<String, dynamic> toJson() => {'profileId': profileId, 'date': dateKey, 'rating': rating.name, 'note': note};
-
-  static DailyFortuneReflection? fromJson(Map<String, dynamic> value) {
-    final rawDate = value['date']?.toString() ?? '';
-    final date = DateTime.tryParse(rawDate) ?? _parseLegacyDate(rawDate);
-    DailyReflectionRating? rating;
-    for (final item in DailyReflectionRating.values) {
-      if (item.name == value['rating']) {
-        rating = item;
-        break;
-      }
-    }
-    if (date == null || rating == null) return null;
-    return DailyFortuneReflection(profileId: value['profileId']?.toString() ?? '', date: date, rating: rating, note: value['note']?.toString() ?? '');
-  }
-
-  static DateTime? _parseLegacyDate(String value) {
-    final match = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$').firstMatch(value.trim());
-    if (match == null) return null;
-    final year = int.tryParse(match.group(1)!);
-    final month = int.tryParse(match.group(2)!);
-    final day = int.tryParse(match.group(3)!);
-    if (year == null || month == null || day == null) return null;
-    final parsed = DateTime(year, month, day);
-    return parsed.year == year && parsed.month == month && parsed.day == day ? parsed : null;
-  }
-
-  static Future<List<DailyFortuneReflection>> load(String profileId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_storageKey);
-    if (raw == null) return const [];
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return const [];
-      final logs = decoded.whereType<Map<String, dynamic>>().map(fromJson).whereType<DailyFortuneReflection>().where((item) => item.profileId == profileId).toList();
-      logs.sort((a, b) => b.date.compareTo(a.date));
-      return logs;
-    } on FormatException {
-      return const [];
-    }
-  }
-
-  static Future<void> save(DailyFortuneReflection next) async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_storageKey);
-    final all = <DailyFortuneReflection>[];
-    if (raw != null) {
-      try {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) all.addAll(decoded.whereType<Map<String, dynamic>>().map(fromJson).whereType<DailyFortuneReflection>());
-      } on FormatException {}
-    }
-    all.removeWhere((item) => item.profileId == next.profileId && item.dateKey == next.dateKey);
-    all.add(next);
-    all.sort((a, b) => b.date.compareTo(a.date));
-    await prefs.setString(_storageKey, jsonEncode(all.take(maxEntries).map((item) => item.toJson()).toList()));
-  }
-
-  static Future<void> clear({String? profileId}) async {
-    final prefs = await SharedPreferences.getInstance();
-    if (profileId == null) {
-      await prefs.remove(_storageKey);
-      return;
-    }
-    final raw = prefs.getString(_storageKey);
-    if (raw == null || raw.trim().isEmpty) return;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return;
-      final remaining = decoded
-          .whereType<Map<String, dynamic>>()
-          .map(fromJson)
-          .whereType<DailyFortuneReflection>()
-          .where((item) => item.profileId != profileId)
-          .toList();
-      if (remaining.isEmpty) {
-        await prefs.remove(_storageKey);
-      } else {
-        await prefs.setString(
-          _storageKey,
-          jsonEncode(remaining.map((item) => item.toJson()).toList()),
-        );
-      }
-    } on FormatException {
-      await prefs.remove(_storageKey);
-    }
-  }
-}
-
-class DailyFortuneReflectionPanel extends StatefulWidget {
-  const DailyFortuneReflectionPanel({super.key, required this.profile, required this.date});
-  final AstroProfile profile;
-  final DateTime date;
-  @override
-  State<DailyFortuneReflectionPanel> createState() => _DailyFortuneReflectionPanelState();
-}
-
-class _DailyFortuneReflectionPanelState extends State<DailyFortuneReflectionPanel> {
-  final _noteController = TextEditingController();
-  DailyReflectionRating? _rating;
-  List<DailyFortuneReflection> _recent = const [];
-  bool _loaded = false;
-  String get _profileId => CustomFortuneLog.profileIdFor(widget.profile);
-
-  @override
-  void initState() { super.initState(); _load(); }
-  @override
-  void didUpdateWidget(covariant DailyFortuneReflectionPanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.date != widget.date || oldWidget.profile != widget.profile) _load();
-  }
-  Future<void> _load() async {
-    final logs = await DailyFortuneReflection.load(_profileId);
-    final key = DailyFortuneReflection(
-      profileId: _profileId,
-      date: widget.date,
-      rating: DailyReflectionRating.mixed,
-      note: '',
-    ).dateKey;
-    DailyFortuneReflection? current;
-    for (final item in logs) {
-      if (item.dateKey == key) {
-        current = item;
-        break;
-      }
-    }
-    if (!mounted) return;
-    setState(() { _recent = logs.take(7).toList(); _rating = current?.rating; _noteController.text = current?.note ?? ''; _loaded = true; });
-  }
-  Future<void> _save() async {
-    if (_rating == null) return;
-    await DailyFortuneReflection.save(DailyFortuneReflection(profileId: _profileId, date: widget.date, rating: _rating!, note: _noteController.text.trim()));
-    await _load();
-  }
-  @override
-  void dispose() { _noteController.dispose(); super.dispose(); }
-  @override
-  Widget build(BuildContext context) {
-    final counts = {for (final item in DailyReflectionRating.values) item: _recent.where((log) => log.rating == item).length};
-    return GlassPanel(
-      margin: const EdgeInsets.only(bottom: 14), padding: const EdgeInsets.all(14),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const _SmallSectionLabel(icon: Icons.bookmark_added_outlined, text: '今日の占いログ'),
-        const SizedBox(height: 6),
-        Text('結果を軽く残すと、自分に出やすい星の流れを後から見返せます。', style: TextStyle(color: Colors.white.withValues(alpha: 0.64), fontSize: 12)),
-        const SizedBox(height: 10),
-        Wrap(spacing: 8, children: DailyReflectionRating.values.map((value) => ChoiceChip(label: Text(value.label), selected: _rating == value, onSelected: (_) => setState(() => _rating = value))).toList()),
-        if (_loaded && _recent.isNotEmpty) ...[
-          const Divider(height: 22),
-          Text('最近${_recent.length}回: 当たった ${counts[DailyReflectionRating.hit]}  まあまあ ${counts[DailyReflectionRating.mixed]}  違った ${counts[DailyReflectionRating.off]}', style: TextStyle(color: const Color(0xFF57D6D1).withValues(alpha: 0.88), fontSize: 11, fontWeight: FontWeight.w800)),
-        ],
-        const SizedBox(height: 8),
-        TextField(controller: _noteController, maxLength: 80, minLines: 1, maxLines: 2, decoration: const InputDecoration(labelText: 'ひとことメモ（任意）', counterText: ''), onChanged: (_) => setState(() {})),
-        Align(alignment: Alignment.centerRight, child: FilledButton.icon(onPressed: _rating == null ? null : _save, icon: const Icon(Icons.save_outlined, size: 17), label: const Text('残す'))),
-      ]),
     );
   }
 }
@@ -4964,6 +4788,15 @@ class FortuneScoreCalculator {
 
     add('出生図の月との響き', _natalMoonPulse(contextData, area).toDouble());
     add('月のハウス通過', _moonHousePulse(contextData, area));
+    final lunarPhase = _lunarPhasePulse(contextData, area);
+    if (lunarPhase.value != 0) {
+      add(
+        '月相（${lunarPhase.label}）',
+        lunarPhase.value,
+        detail: lunarPhase.detail,
+        formula: '月相ごとの分野別補正（吉凶を一律にせず、最大±1.2点）',
+      );
+    }
     add(
       '空の星同士のアスペクト',
       _transitPairPulse(contextData, area),
@@ -5011,6 +4844,115 @@ class FortuneScoreCalculator {
       rawScore: value,
       score: value.round().clamp(50, 99).toInt(),
     );
+  }
+
+  /// 月相は一律の吉凶ではなく、各段階で進めやすい分野だけを穏やかに補正する。
+  /// 月の星座・出生図とのアスペクト・ハウス通過は別の要因として既に計上する。
+  static ({String label, String detail, double value}) _lunarPhasePulse(
+    HoroscopeReadingContext contextData,
+    FortuneArea area,
+  ) {
+    final sun = _placement(contextData.transit.placements, AstroPlanet.sun);
+    final moon = _placement(contextData.transit.placements, AstroPlanet.moon);
+    if (sun == null || moon == null) return (label: '月相', detail: '月相データなし', value: 0);
+    final elongation = ((_planetLongitude(moon) - _planetLongitude(sun)) + 360) % 360;
+    final phase = switch (elongation) {
+      < 22.5 || >= 337.5 => '新月',
+      < 67.5 => '満ちていく三日月',
+      < 112.5 => '上弦の月',
+      < 157.5 => '満ちていく凸月',
+      < 202.5 => '満月',
+      < 247.5 => '欠けていく凸月',
+      < 292.5 => '下弦の月',
+      _ => '欠けていく三日月',
+    };
+    final value = switch (phase) {
+      '新月' => switch (area) {
+          FortuneArea.work => 0.8,
+          FortuneArea.love => 0.6,
+          FortuneArea.money => 0.4,
+          FortuneArea.mental => 0.9,
+          FortuneArea.overall => 0.7,
+        },
+      '満ちていく三日月' => switch (area) {
+          FortuneArea.work => 0.6,
+          FortuneArea.love => 0.4,
+          FortuneArea.money => 0.5,
+          FortuneArea.mental => 0.4,
+          FortuneArea.overall => 0.5,
+        },
+      '上弦の月' => switch (area) {
+          FortuneArea.work => 1.1,
+          FortuneArea.love => 0.5,
+          FortuneArea.money => 0.7,
+          FortuneArea.mental => 0.2,
+          FortuneArea.overall => 0.6,
+        },
+      '満ちていく凸月' => switch (area) {
+          FortuneArea.work => 0.7,
+          FortuneArea.love => 0.5,
+          FortuneArea.money => 0.8,
+          FortuneArea.mental => 0.3,
+          FortuneArea.overall => 0.6,
+        },
+      '満月' => switch (area) {
+          FortuneArea.work => 0.4,
+          FortuneArea.love => 1.1,
+          FortuneArea.money => 0.3,
+          FortuneArea.mental => 1.2,
+          FortuneArea.overall => 0.7,
+        },
+      '欠けていく凸月' => switch (area) {
+          FortuneArea.work => 0.2,
+          FortuneArea.love => 0.7,
+          FortuneArea.money => 0.3,
+          FortuneArea.mental => 0.8,
+          FortuneArea.overall => 0.5,
+        },
+      '下弦の月' => switch (area) {
+          FortuneArea.work => -0.3,
+          FortuneArea.love => 0.2,
+          FortuneArea.money => -0.2,
+          FortuneArea.mental => 0.9,
+          FortuneArea.overall => 0.2,
+        },
+      _ => switch (area) {
+          FortuneArea.work => -0.2,
+          FortuneArea.love => 0.1,
+          FortuneArea.money => -0.1,
+          FortuneArea.mental => 0.7,
+          FortuneArea.overall => 0.1,
+        },
+    };
+    final detail = switch (phase) {
+      '新月' => '始める・意図を決める流れ',
+      '満ちていく三日月' => '小さく続けて土台を育てる流れ',
+      '上弦の月' => '行動に移して進み具合を確かめる流れ',
+      '満ちていく凸月' => '仕上げ前の準備を整える流れ',
+      '満月' => '結果や気持ちを受け取り、振り返る流れ',
+      '欠けていく凸月' => '成果を分け合い、役目を整理する流れ',
+      '下弦の月' => '不要な負担を手放し、次へ備える流れ',
+      _ => '休息と整理で次の新月へ備える流れ',
+    };
+    return (label: phase, detail: detail, value: value);
+  }
+
+  static Map<String, Object?> lunarPhaseScoreEffects(HoroscopeReadingContext contextData) {
+    Map<String, Object?> factor(FortuneArea area) {
+      final pulse = _lunarPhasePulse(contextData, area);
+      return {'value': double.parse(pulse.value.toStringAsFixed(1)), 'detail': pulse.detail};
+    }
+    final representative = _lunarPhasePulse(contextData, FortuneArea.overall);
+    return {
+      'phase_label': representative.label,
+      'formula': '月相ごとの分野別補正。吉凶を一律にせず、最大±1.2点。月の星座・出生図とのアスペクト・ハウス通過は別途計上。',
+      'areas': {
+        'love': factor(FortuneArea.love),
+        'work': factor(FortuneArea.work),
+        'money': factor(FortuneArea.money),
+        'mental': factor(FortuneArea.mental),
+      },
+    };
   }
 
   static _ScoreCalculation _returnCalculation(
@@ -8979,6 +8921,7 @@ class DailyAstroDataExportCard extends StatelessWidget {
       'void_moon': voidMoon == null ? null : {'start_jst': _jst(voidMoon.startTime), 'end_jst': _jst(voidMoon.endTime)},
       'lunar_phase': DailyAstroEventsCard(date: date, contextData: contextData)
           ._lunarPhaseSnapshot(DateTime(date.year, date.month, date.day, 12), AstrologyDataSources.current),
+      'lunar_phase_score_effects': FortuneScoreCalculator.lunarPhaseScoreEffects(contextData),
       'retrograde_planets': {
         ...contextData.retrogradePlanets,
         ...DailyAstroEventsCard.verifiedRetrogradesAt(date),
@@ -9467,9 +9410,19 @@ String? _lunarPhaseReadingHint(DateTime? date, HoroscopeReadingContext contextDa
   final event = DailyAstroEventsCard(date: date, contextData: contextData)
       ._lunarPhaseEvent(start, AstrologyDataSources.current);
   if (event == null) return null;
-  return event.contains('新月')
-      ? '今日は新月です。これから育てたいことを一つ決め、小さく始めると流れを作りやすい日です'
-      : '今日は満月です。結果と気持ちが表れやすいので、振り返りと調整に使うと整います';
+  if (event.contains('新月')) {
+    return '今日は新月です。これから育てたいことを一つ決め、小さく始めると流れを作りやすい日です';
+  }
+  if (event.contains('上弦の月')) {
+    return '今日は上弦の月です。育てたいことを一つ行動に移し、進み具合を確かめると流れを活かせます';
+  }
+  if (event.contains('満月')) {
+    return '今日は満月です。結果と気持ちが表れやすいので、振り返りと調整に使うと整います';
+  }
+  if (event.contains('下弦の月')) {
+    return '今日は下弦の月です。負担や不要なことを一つ手放し、次の準備を整えると気持ちが軽くなります';
+  }
+  return null;
 }
 
 String? _majorIngressReadingHint(DateTime? date) {
@@ -11391,6 +11344,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
             },
       'lunar_phase': DailyAstroEventsCard(date: context.transit.date, contextData: context)
           ._lunarPhaseSnapshot(context.transit.date, AstrologyDataSources.current),
+      'lunar_phase_score_effects': FortuneScoreCalculator.lunarPhaseScoreEffects(context),
       'retrograde_planets': {
         ...context.retrogradePlanets,
         ...DailyAstroEventsCard.verifiedRetrogradesAt(context.transit.date),
@@ -11423,6 +11377,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
             },
       'lunar_phase': DailyAstroEventsCard(date: date, contextData: daily)
           ._lunarPhaseSnapshot(date, AstrologyDataSources.current),
+      'lunar_phase_score_effects': FortuneScoreCalculator.lunarPhaseScoreEffects(daily),
       'retrograde_planets': {
         ...daily.retrogradePlanets,
         ...DailyAstroEventsCard.verifiedRetrogradesAt(date),
@@ -14192,7 +14147,6 @@ class _CustomReadingState extends State<CustomReading> {
   final _questionFocusNode = FocusNode();
   final _chatScrollController = ScrollController();
   bool _loading = false;
-  bool _historyLoading = true;
   bool _showNavigator = true;
   List<CustomFortuneLog> _chatLogs = const [];
   String? _activeQuestion;
@@ -14246,7 +14200,6 @@ class _CustomReadingState extends State<CustomReading> {
         widget.onInitialQuestionConsumed?.call();
       });
     }
-    _historyLoading = false;
   }
 
   @override
@@ -14293,15 +14246,6 @@ class _CustomReadingState extends State<CustomReading> {
     }
   }
 
-  Future<void> _loadChatLogs() async {
-    if (!mounted) return;
-    setState(() {
-      _chatLogs = const [];
-      _historyLoading = false;
-    });
-    _scrollToLatest();
-  }
-
   void _scrollToLatest() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_chatScrollController.hasClients) return;
@@ -14337,8 +14281,6 @@ class _CustomReadingState extends State<CustomReading> {
       );
       final log = CustomFortuneLog(
         createdAt: DateTime.now(),
-        profileId: CustomFortuneLog.profileIdFor(widget.profile),
-        profileName: widget.profile.name,
         question: question,
         answer: answer,
       );
@@ -14354,8 +14296,6 @@ class _CustomReadingState extends State<CustomReading> {
       if (!mounted) return;
       final failedLog = CustomFortuneLog(
         createdAt: DateTime.now(),
-        profileId: CustomFortuneLog.profileIdFor(widget.profile),
-        profileName: widget.profile.name,
         question: question,
         answer: '鑑定を作成できませんでした。星データの計算中に問題が起きた可能性があります。もう一度送信しても直らない場合は、プロフィールを開き直してからお試しください。',
       );
@@ -14423,12 +14363,7 @@ class _CustomReadingState extends State<CustomReading> {
                     controller: _chatScrollController,
                     padding: EdgeInsets.all(isTablet ? 18 : 12),
                     children: [
-                      if (_historyLoading)
-                        const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Center(child: CircularProgressIndicator()),
-                        )
-                      else if (chronologicalLogs.isEmpty)
+                      if (chronologicalLogs.isEmpty)
                         ...[
                           _chatBubble(
                             text: '星の流れを踏まえて、続けて相談できます。恋愛の時期、向く仕事、今の選択などを聞いてください。',
@@ -14827,53 +14762,6 @@ class _CustomReadingState extends State<CustomReading> {
     _selectQuestionExample(selected);
   }
 
-  Future<void> _deleteChatLog(CustomFortuneLog log) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('この鑑定を削除しますか？'),
-        content: const Text('質問と回答を1セットで削除します。この操作は元に戻せません。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('キャンセル'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('削除'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await CustomFortuneLog.delete(log);
-    await _loadChatLogs();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('鑑定を削除しました')),
-    );
-  }
-
-  Future<void> _openChatHistory() async {
-    final remaining = await showModalBottomSheet<List<CustomFortuneLog>>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => CustomFortuneLogHistorySheet(
-        initialLogs: _chatLogs,
-        profileName: widget.profile.name,
-        onChanged: (remaining) async {
-          if (!mounted) return;
-          setState(() => _chatLogs = List.of(remaining));
-        },
-      ),
-    );
-    if (!mounted) return;
-    if (remaining != null) {
-      setState(() => _chatLogs = remaining);
-    }
-    await _loadChatLogs();
-  }
 }
 
 class ProfileView extends StatelessWidget {
@@ -19211,8 +19099,8 @@ class AstrologyEngine {
 class CustomFortuneLog {
   const CustomFortuneLog({
     required this.createdAt,
-    required this.profileId,
-    required this.profileName,
+    this.profileId = '',
+    this.profileName = '',
     required this.question,
     required this.answer,
   });
