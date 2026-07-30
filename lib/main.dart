@@ -15475,11 +15475,6 @@ class AppLicenseInfoCard extends StatelessWidget {
                 url: 'https://github.com/pancyo/pancyo_ai_astrology',
               ),
               _CreatorLinkButton(
-                icon: Icons.volunteer_activism_outlined,
-                label: '開発を応援する（任意）',
-                url: 'https://ofuse.me/pancyo',
-              ),
-              _CreatorLinkButton(
                 icon: Icons.code_outlined,
                 label: 'Swissソース',
                 url: 'https://github.com/aloistr/swisseph',
@@ -16013,7 +16008,15 @@ class CreatorProfileCard extends StatelessWidget {
                     height: 1.5,
                   ),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 28),
+                Text(
+                  'アプリは無料で、すべての機能を利用できます。開発・端末検証・公開を続けるには、時間や費用がかかります。',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 10),
                 const Wrap(
                   spacing: 10,
                   runSpacing: 10,
@@ -16028,7 +16031,21 @@ class CreatorProfileCard extends StatelessWidget {
                       label: 'Kindle作品一覧',
                       url: 'https://www.amazon.co.jp/stores/author/B0GJFN5HX8',
                     ),
+                    _CreatorLinkButton(
+                      icon: Icons.volunteer_activism_outlined,
+                      label: '開発を応援する（任意）',
+                      url: 'https://ofuse.me/pancyo',
+                    ),
                   ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '応援の有無・金額によって、アプリの機能や鑑定結果が変わることはありません。',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.56),
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
                 ),
             ],
           );
