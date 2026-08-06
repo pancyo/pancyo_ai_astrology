@@ -20,15 +20,17 @@
 
 このプロジェクトは、Android版の星計算にSwiss Ephemeris Free Editionを使うため、GNU Affero General Public License version 3 or laterとして公開する前提で整備しています。
 
+コミュニティで守る行動基準は [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) を参照してください。
+
 - アプリ本体のライセンス本文: `LICENSE`
 - 著作権表記と採用ライブラリの注意: `NOTICE.md`
 - Swiss Ephemeris公式サイト: https://www.astro.com/swisseph/
 - Swiss Ephemeris公式ソース: https://github.com/aloistr/swisseph
 - アプリ本体の対応ソース: https://github.com/pancyo/pancyo_ai_astrology
 
-現在は追加エフェメリスファイルを同梱していません。追加ファイルを配布する場合は、配布元、ライセンス、容量、チェックサムを記録してから有効化します。
+星の位置はアプリ同梱のMoshier計算で算出します。追加エフェメリスファイルをダウンロードさせる機能は設けません。
 
 ## バージョン
 
-現在の表示バージョンは `0.3.31` です。
+現在の表示バージョンは `0.3.43` です。
 Android内部のversionCodeは配布ごとに更新しますが、アプリ内には原則表示しません。

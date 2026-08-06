@@ -1063,7 +1063,7 @@ class _DecoratedSectionTitle extends StatelessWidget {
               padding: EdgeInsets.symmetric(horizontal: 12),
               child: Icon(Icons.auto_awesome, size: 16, color: Color(0xFFF6D77A)),
             ),
-            Flexible(child: Text(text, textAlign: TextAlign.center, style: style)),
+            Text(text, textAlign: TextAlign.center, style: style),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 12),
               child: Icon(Icons.auto_awesome, size: 16, color: Color(0xFFF6D77A)),
@@ -1982,6 +1982,26 @@ String moonSignTimeActionHint(ZodiacSign sign) => switch (sign) {
   ZodiacSign.aquarius => '新しい方法を小さく試す', ZodiacSign.pisces => '休息と気持ちの整理を優先',
 };
 
+class OverallScoreMethodNotice extends StatelessWidget {
+  const OverallScoreMethodNotice({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(left: 4, right: 4, bottom: 8),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.64),
+            fontSize: 12,
+            height: 1.4,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+}
+
 class OverallFortuneCard extends StatelessWidget {
   const OverallFortuneCard({
     super.key,
@@ -2032,9 +2052,6 @@ class OverallFortuneCard extends StatelessWidget {
     if (!detailed) {
       final mood = _scoreMood(score);
       final parts = <String>[mood];
-      parts.add(overallReturnBonus == null
-          ? '総合運は恋愛・仕事・金運・健康・メンタルの4分野の平均です。'
-          : '総合運は4分野の平均を土台に、${overallReturnBonus.planet.label}リターン特例+${overallReturnBonus.value.toStringAsFixed(1)}点を加えています。');
       parts.add(moonSignActionHint(contextData, mental: false));
       if (aspect != null) {
         parts.add(_simpleAspectMessage(aspect));
@@ -2082,9 +2099,6 @@ class OverallFortuneCard extends StatelessWidget {
 
     final parts = <String>[];
     parts.add('${_scoreMood(score)}。今日は星の配置を材料に、動く場面と整える場面を分けて使うと流れを活かしやすくなります。');
-    parts.add(overallReturnBonus == null
-        ? '総合運は、恋愛・仕事・金運・健康・メンタルの4分野の点数を平均して表示しています。'
-        : '総合運は4分野平均を土台に、${overallReturnBonus.planet.label}リターン特例+${overallReturnBonus.value.toStringAsFixed(1)}点を加えています。${overallReturnBonus.detail}。${overallReturnBonus.formula}。');
     parts.add(moonSignActionHint(contextData, mental: false));
     if (aspect != null) {
       parts.add('指定日の主な流れは、現在の${aspect.transitPlanet.label}が出生図の${aspect.natalPlanet.label}へ${aspect.type.label}を作る配置です。${aspect.meaning}。');
@@ -4803,6 +4817,134 @@ class FortuneScoreCalculator {
     return candidates.first;
   }
 
+  /// 週・月では、平均に埋もれる「正確なリターン直前/直後」の山だけを示す。
+  /// 日運の通常補正とは別で、総合運に一度だけ加える。木星は12年に一度のため
+  /// 最も大きく、土星・外惑星は人生テーマとしては重くても点数は穏やかにする。
+  static ({AstroPlanet planet, double value, String detail, String formula})? periodReturnPeakBonus(
+    Iterable<HoroscopeReadingContext> contexts,
+  ) {
+    final candidates = <({AstroPlanet planet, double value, String detail, String formula})>[];
+    for (final context in contexts) {
+      for (final event in context.returns) {
+        final maximum = switch (event.planet) {
+          AstroPlanet.jupiter => 7.5,
+          AstroPlanet.saturn => 3.5,
+          AstroPlanet.uranus || AstroPlanet.neptune || AstroPlanet.pluto => 2.4,
+          AstroPlanet.sun => 1.4,
+          AstroPlanet.venus || AstroPlanet.mars => 1.0,
+          AstroPlanet.mercury => 0.7,
+          AstroPlanet.moon || AstroPlanet.ascendant || AstroPlanet.midheaven => 0.0,
+        };
+        if (maximum == 0) continue;
+        // 4度以内だけをピーク扱いにする。広いリターン窓全体を底上げしない。
+        final closeness = ((4.0 - event.orb) / 4.0).clamp(0.0, 1.0).toDouble();
+        if (closeness <= 0) continue;
+        final phaseWeight = switch (event.phase) {
+          AspectPhase.applying => 0.90,
+          AspectPhase.exact => 1.0,
+          AspectPhase.separating => 0.70,
+        };
+        final value = maximum * closeness * phaseWeight;
+        if (value < 0.25) continue;
+        candidates.add((
+          planet: event.planet,
+          value: value,
+          detail: '${context.transit.date.month}/${context.transit.date.day}頃・第${event.natalHouse}ハウス・オーブ${event.orb.toStringAsFixed(1)}°・${event.phase.label}',
+          formula: '期間ピーク: ${event.planet.label}上限${maximum.toStringAsFixed(1)} × 4°以内の近さ${closeness.toStringAsFixed(2)} × 位相${phaseWeight.toStringAsFixed(2)}（最強1件のみ）',
+        ));
+      }
+    }
+    if (candidates.isEmpty) return null;
+    candidates.sort((left, right) => right.value.compareTo(left.value));
+    return candidates.first;
+  }
+
+  /// 年運では、24時点の平均で埋もれやすい「節目」だけを最強1件に絞って示す。
+  /// 日・週・月には使わず、通常のリターン・アスペクト点とは別の年専用補正。
+  static ({double value, String detail, String formula})? annualLifeEventBoost(
+    Iterable<HoroscopeReadingContext> contexts,
+  ) {
+    final candidates = <({double value, String detail, String formula})>[];
+    String dateLabel(DateTime date) => '${date.month}/${date.day}';
+    for (final context in contexts) {
+      for (final event in context.returns) {
+        final isOuterPlanet = event.planet == AstroPlanet.uranus ||
+            event.planet == AstroPlanet.neptune ||
+            event.planet == AstroPlanet.pluto;
+        // 外惑星リターンは年単位では長く表示されるため、通常のリターン判定と
+        // 同じく十分にタイトな期間だけを「人生イベント」として扱う。
+        if (isOuterPlanet && event.orb > 2.0) continue;
+        final maximum = switch (event.planet) {
+          AstroPlanet.jupiter => 3.2,
+          AstroPlanet.saturn => 2.5,
+          AstroPlanet.uranus || AstroPlanet.neptune || AstroPlanet.pluto => 2.0,
+          AstroPlanet.sun => 1.2,
+          AstroPlanet.venus || AstroPlanet.mars => 1.0,
+          AstroPlanet.mercury => 0.7,
+          AstroPlanet.moon || AstroPlanet.ascendant || AstroPlanet.midheaven => 0.0,
+        };
+        if (maximum == 0) continue;
+        final closeness = ((event.window - event.orb) / event.window).clamp(0.0, 1.0).toDouble();
+        final phaseWeight = switch (event.phase) {
+          AspectPhase.applying => 0.84,
+          AspectPhase.exact => 1.0,
+          AspectPhase.separating => 0.62,
+        };
+        final value = maximum * closeness * phaseWeight;
+        if (value >= 0.15) {
+          candidates.add((
+            value: value,
+            detail: '${dateLabel(context.transit.date)}頃の${event.planet.label}リターン（第${event.natalHouse}ハウス、オーブ${event.orb.toStringAsFixed(1)}°）',
+            formula: '年専用: ${event.planet.label}の節目上限${maximum.toStringAsFixed(1)} × 近さ${closeness.toStringAsFixed(2)} × 位相${phaseWeight.toStringAsFixed(2)}（最強1件、上限+3.5）',
+          ));
+        }
+      }
+      for (final aspect in context.aspects) {
+        if ((aspect.natalPlanet != AstroPlanet.ascendant && aspect.natalPlanet != AstroPlanet.midheaven) || aspect.orb > 1.5) continue;
+        final planetWeight = switch (aspect.transitPlanet) {
+          AstroPlanet.jupiter => 2.4,
+          AstroPlanet.saturn => 1.9,
+          AstroPlanet.uranus || AstroPlanet.neptune || AstroPlanet.pluto => 1.7,
+          _ => 0.0,
+        };
+        final aspectWeight = switch (aspect.type) {
+          AspectType.trine => 1.0,
+          AspectType.sextile => 0.85,
+          AspectType.conjunction => 0.70,
+          AspectType.square || AspectType.opposition => 0.0,
+        };
+        final closeness = ((1.5 - aspect.orb) / 1.5).clamp(0.0, 1.0).toDouble();
+        final value = planetWeight * aspectWeight * closeness;
+        if (value >= 0.15) {
+          candidates.add((
+            value: value,
+            detail: '${dateLabel(context.transit.date)}頃の${aspect.transitPlanet.label}${aspect.type.label}出生図の${aspect.natalPlanet.label}（オーブ${aspect.orb.toStringAsFixed(1)}°）',
+            formula: '年専用: 角度上限${planetWeight.toStringAsFixed(1)} × 調和角係数${aspectWeight.toStringAsFixed(2)} × 近さ${closeness.toStringAsFixed(2)}（最強1件、上限+3.5）',
+          ));
+        }
+      }
+      for (final label in _rarePatternLabels(context.transit.placements)) {
+        final value = switch (label) {
+          'グランドセクスタイル' => 1.4,
+          'ミスティックレクタングル（ダイヤモンド）' => 0.9,
+          'クレイドル（ゆりかご）' => 0.7,
+          _ => 0.0,
+        };
+        if (value > 0) {
+          candidates.add((
+            value: value,
+            detail: '${dateLabel(context.transit.date)}頃の$label',
+            formula: '年専用: 良いレア配置の節目補正+${value.toStringAsFixed(1)}（最強1件、上限+3.5）',
+          ));
+        }
+      }
+    }
+    if (candidates.isEmpty) return null;
+    candidates.sort((left, right) => right.value.compareTo(left.value));
+    final best = candidates.first;
+    return (value: best.value.clamp(0.0, 3.5).toDouble(), detail: best.detail, formula: best.formula);
+  }
+
   static FortuneScoreBreakdown _scoreBreakdown({
     required HoroscopeReadingContext contextData,
     required FortuneArea area,
@@ -5697,10 +5839,21 @@ class FortuneScoreCalculator {
   }
 
   static List<String> transitRarePatternLabels(HoroscopeReadingContext contextData) =>
-      _rarePatternLabels(contextData.transit.placements);
+      transitRarePatternDetails(contextData).map((item) => item.label).toSet().toList()..sort();
 
   static List<String> natalRarePatternLabels(HoroscopeReadingContext contextData) =>
-      _rarePatternLabels(contextData.natal.placements);
+      natalRarePatternDetails(contextData).map((item) => item.label).toSet().toList()..sort();
+
+  static List<RarePatternConfiguration> transitRarePatternDetails(
+    HoroscopeReadingContext contextData,
+  ) => _rarePatternDetails(contextData.transit.placements);
+
+  static List<RarePatternConfiguration> natalRarePatternDetails(
+    HoroscopeReadingContext contextData,
+  ) => _rarePatternDetails(contextData.natal.placements);
+
+  static List<String> _rarePatternLabels(List<PlanetPlacement> placements) =>
+      _rarePatternDetails(placements).map((item) => item.label).toSet().toList()..sort();
 
   static String rarePatternGuidance(String label, {bool natal = false}) {
     final timeWord = natal ? 'もともと' : '今日は';
@@ -5717,9 +5870,15 @@ class FortuneScoreCalculator {
     };
   }
 
-  static List<String> _rarePatternLabels(List<PlanetPlacement> source) {
+  static List<RarePatternConfiguration> _rarePatternDetails(List<PlanetPlacement> source) {
     final placements = source.where((item) => item.planet != AstroPlanet.ascendant && item.planet != AstroPlanet.midheaven).toList();
-    final labels = <String>{};
+    final result = <RarePatternConfiguration>[];
+    final seen = <String>{};
+    void add(String label, List<PlanetPlacement> members) {
+      final sorted = [...members]..sort((left, right) => left.planet.index.compareTo(right.planet.index));
+      final key = '$label|${sorted.map((item) => item.planet.index).join(',')}';
+      if (seen.add(key)) result.add(RarePatternConfiguration(label: label, placements: sorted));
+    }
     for (var a = 0; a < placements.length; a++) {
       for (var b = a + 1; b < placements.length; b++) {
         for (var c = b + 1; c < placements.length; c++) {
@@ -5728,14 +5887,28 @@ class FortuneScoreCalculator {
           final ac = _planetLongitude(placements[c]);
           if ((_nearAspect(ab, bc, 180) && _nearAspect(ab, ac, 90) && _nearAspect(ac, bc, 90)) ||
               (_nearAspect(ab, ac, 180) && _nearAspect(ab, bc, 90) && _nearAspect(bc, ac, 90)) ||
-              (_nearAspect(ac, bc, 180) && _nearAspect(ac, ab, 90) && _nearAspect(ab, bc, 90))) labels.add('Tスクエア');
-          if ((_nearAspect(ab, ac, 60) && _nearAspect(ab, bc, 150, orb: 3) && _nearAspect(ac, bc, 150, orb: 3)) ||
-              (_nearAspect(ab, bc, 60) && _nearAspect(ab, ac, 150, orb: 3) && _nearAspect(bc, ac, 150, orb: 3)) ||
-              (_nearAspect(ac, bc, 60) && _nearAspect(ac, ab, 150, orb: 3) && _nearAspect(bc, ab, 150, orb: 3))) labels.add('ヨッド');
+              (_nearAspect(ac, bc, 180) && _nearAspect(ac, ab, 90) && _nearAspect(ab, bc, 90))) add('Tスクエア', [placements[a], placements[b], placements[c]]);
+          int? yodApex;
+          if (_nearAspect(ab, ac, 60) && _nearAspect(ab, bc, 150, orb: 3) && _nearAspect(ac, bc, 150, orb: 3)) {
+            yodApex = b;
+          } else if (_nearAspect(ab, bc, 60) && _nearAspect(ab, ac, 150, orb: 3) && _nearAspect(bc, ac, 150, orb: 3)) {
+            yodApex = c;
+          } else if (_nearAspect(ac, bc, 60) && _nearAspect(ac, ab, 150, orb: 3) && _nearAspect(bc, ab, 150, orb: 3)) {
+            yodApex = a;
+          }
+          if (yodApex != null) {
+            add('ヨッド', [placements[a], placements[b], placements[c]]);
+            for (var d = 0; d < placements.length; d++) {
+              if (d == a || d == b || d == c) continue;
+              if (_nearAspect(_planetLongitude(placements[yodApex]), _planetLongitude(placements[d]), 180)) {
+                add('ブーメラン（ヨッド）', [placements[a], placements[b], placements[c], placements[d]]);
+              }
+            }
+          }
           // ハンマー・オブ・ソー: 90度の土台へ、二本の135度が集まる。
           if ((_nearAspect(ab, ac, 90) && _nearAspect(ab, bc, 135, orb: 3) && _nearAspect(ac, bc, 135, orb: 3)) ||
               (_nearAspect(ab, bc, 90) && _nearAspect(ab, ac, 135, orb: 3) && _nearAspect(bc, ac, 135, orb: 3)) ||
-              (_nearAspect(ac, bc, 90) && _nearAspect(ac, ab, 135, orb: 3) && _nearAspect(bc, ab, 135, orb: 3))) labels.add('ハンマー・オブ・ソー');
+              (_nearAspect(ac, bc, 90) && _nearAspect(ac, ab, 135, orb: 3) && _nearAspect(bc, ab, 135, orb: 3))) add('ハンマー・オブ・ソー', [placements[a], placements[b], placements[c]]);
           for (var d = c + 1; d < placements.length; d++) {
             final values = [ab, bc, ac, _planetLongitude(placements[d])];
             var oppositions = 0; var squares = 0; var trines = 0; var sextiles = 0;
@@ -5747,24 +5920,43 @@ class FortuneScoreCalculator {
                 if (_nearAspect(values[i], values[j], 60)) sextiles++;
               }
             }
-            if (oppositions >= 2 && squares >= 4) labels.add('グランドクロス');
-            if (oppositions >= 2 && trines >= 2 && sextiles >= 2) labels.add('ミスティックレクタングル（ダイヤモンド）');
-            if (oppositions == 1 && trines >= 2 && sextiles >= 2) labels.add('クレイドル（ゆりかご）');
-            if (labels.contains('ヨッド') && oppositions >= 1) labels.add('ブーメラン（ヨッド）');
+            final members = [placements[a], placements[b], placements[c], placements[d]];
+            if (oppositions == 2 && squares == 4) add('グランドクロス', members);
+            if (oppositions == 2 && trines == 2 && sextiles == 2) add('ミスティックレクタングル（ダイヤモンド）', members);
+            if (oppositions == 1 && trines == 2 && sextiles == 2) add('クレイドル（ゆりかご）', members);
           }
         }
       }
     }
     if (placements.length >= 6) {
-      var sextiles = 0;
-      for (var i = 0; i < placements.length; i++) {
-        for (var j = i + 1; j < placements.length; j++) {
-          if (_nearAspect(_planetLongitude(placements[i]), _planetLongitude(placements[j]), 60)) sextiles++;
+      for (var a = 0; a < placements.length; a++) {
+        for (var b = a + 1; b < placements.length; b++) {
+          for (var c = b + 1; c < placements.length; c++) {
+            for (var d = c + 1; d < placements.length; d++) {
+              for (var e = d + 1; e < placements.length; e++) {
+                for (var f = e + 1; f < placements.length; f++) {
+                  final members = [placements[a], placements[b], placements[c], placements[d], placements[e], placements[f]]
+                    ..sort((left, right) => _planetLongitude(left).compareTo(_planetLongitude(right)));
+                  var hexagon = true;
+                  for (var index = 0; index < members.length; index++) {
+                    final first = _planetLongitude(members[index]);
+                    final second = _planetLongitude(members[(index + 1) % members.length]);
+                    final step = (second - first + 360) % 360;
+                    if ((step - 60).abs() > 6) {
+                      hexagon = false;
+                      break;
+                    }
+                  }
+                  if (hexagon) add('グランドセクスタイル', members);
+                }
+              }
+            }
+          }
         }
       }
-      if (sextiles >= 6) labels.add('グランドセクスタイル');
     }
-    return labels.toList()..sort();
+    result.sort((left, right) => left.label.compareTo(right.label));
+    return result;
   }
 
   static double _rarePatternPulse(List<String> labels, FortuneArea area) {
@@ -5772,9 +5964,9 @@ class FortuneScoreCalculator {
     for (final label in labels) {
       if (label == 'グランドクロス' || label == 'Tスクエア') value += area == FortuneArea.mental ? -1.8 : -1.3;
       if (label == 'ヨッド') value += area == FortuneArea.overall ? -0.8 : -0.5;
-      if (label == 'クレイドル（ゆりかご）') value += area == FortuneArea.mental ? 1.4 : 1.0;
-      if (label == 'ミスティックレクタングル（ダイヤモンド）') value += 1.3;
-      if (label == 'グランドセクスタイル') value += 2.0;
+      if (label == 'クレイドル（ゆりかご）') value += area == FortuneArea.mental ? 1.6 : 1.2;
+      if (label == 'ミスティックレクタングル（ダイヤモンド）') value += 1.6;
+      if (label == 'グランドセクスタイル') value += 2.6;
       if (label == 'ブーメラン（ヨッド）' || label == 'ハンマー・オブ・ソー') value += -1.0;
     }
     return value.clamp(-3.5, 3.5).toDouble();
@@ -5865,17 +6057,20 @@ class FortuneScoreCalculator {
   }
 
   static List<Set<AstroPlanet>> _grandTrineGroups(List<PlanetPlacement> placements) {
+    final planets = placements
+        .where((item) => item.planet != AstroPlanet.ascendant && item.planet != AstroPlanet.midheaven)
+        .toList();
     final result = <Set<AstroPlanet>>[];
-    for (var i = 0; i < placements.length; i++) {
-      for (var j = i + 1; j < placements.length; j++) {
-        for (var k = j + 1; k < placements.length; k++) {
-          final first = _planetLongitude(placements[i]);
-          final second = _planetLongitude(placements[j]);
-          final third = _planetLongitude(placements[k]);
+    for (var i = 0; i < planets.length; i++) {
+      for (var j = i + 1; j < planets.length; j++) {
+        for (var k = j + 1; k < planets.length; k++) {
+          final first = _planetLongitude(planets[i]);
+          final second = _planetLongitude(planets[j]);
+          final third = _planetLongitude(planets[k]);
           if (_nearTrine(first, second) &&
               _nearTrine(second, third) &&
               _nearTrine(first, third)) {
-            result.add({placements[i].planet, placements[j].planet, placements[k].planet});
+            result.add({planets[i].planet, planets[j].planet, planets[k].planet});
           }
         }
       }
@@ -5899,6 +6094,60 @@ class FortuneScoreCalculator {
     }
     return null;
   }
+}
+
+class RarePatternConfiguration {
+  const RarePatternConfiguration({required this.label, required this.placements});
+
+  final String label;
+  final List<PlanetPlacement> placements;
+
+  List<AstroPlanet> get planets => placements.map((item) => item.planet).toList();
+
+  List<String> get aspectDetails {
+    final details = <String>[];
+    const aspectDefinitions = <({String label, double angle, double orb})>[
+      (label: 'コンジャンクション', angle: 0, orb: 8),
+      (label: 'セクスタイル', angle: 60, orb: 8),
+      (label: 'スクエア', angle: 90, orb: 8),
+      (label: 'トライン', angle: 120, orb: 8),
+      (label: 'セスキコードレート', angle: 135, orb: 3),
+      (label: 'クインカンクス', angle: 150, orb: 3),
+      (label: 'オポジション', angle: 180, orb: 8),
+    ];
+    for (var first = 0; first < placements.length; first++) {
+      for (var second = first + 1; second < placements.length; second++) {
+        final firstLongitude = FortuneScoreCalculator._planetLongitude(placements[first]);
+        final secondLongitude = FortuneScoreCalculator._planetLongitude(placements[second]);
+        for (final aspect in aspectDefinitions) {
+          if (!FortuneScoreCalculator._nearAspect(
+            firstLongitude,
+            secondLongitude,
+            aspect.angle,
+            orb: aspect.orb,
+          )) {
+            continue;
+          }
+          var distance = (firstLongitude - secondLongitude).abs() % 360.0;
+          if (distance > 180.0) distance = 360.0 - distance;
+          final orb = (distance - aspect.angle).abs();
+          details.add('${placements[first].planet.label} ${aspect.label} ${placements[second].planet.label}（オーブ${orb.toStringAsFixed(1)}°）');
+          break;
+        }
+      }
+    }
+    return details;
+  }
+
+  Map<String, Object?> toJson() => {
+        'label': label,
+        'planets': placements.map((item) => {
+              'planet': item.planet.label,
+              'sign': item.sign.label,
+              'degree': double.parse(item.degree.toStringAsFixed(2)),
+            }).toList(),
+        'aspects': aspectDetails,
+      };
 }
 
 class FortuneScoreFactor {
@@ -8876,6 +9125,10 @@ class _DailyReadingState extends State<DailyReading> {
   int _dayOffset = 0;
   final _contextCache = <String, HoroscopeReadingContext>{};
 
+  // 日付を長く送り続けた場合も、画面を開いたままのメモリが増え続けないようにする。
+  // 直近の日付を行き来する通常利用には十分な件数を残す。
+  static const _maxContextCacheEntries = 90;
+
   @override
   void didUpdateWidget(covariant DailyReading oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -8884,6 +9137,10 @@ class _DailyReadingState extends State<DailyReading> {
 
   HoroscopeReadingContext _contextFor(DateTime date) {
     final key = '${date.toIso8601String()}|${HouseSystemSettings.current.value.name}';
+    if (!_contextCache.containsKey(key) &&
+        _contextCache.length >= _maxContextCacheEntries) {
+      _contextCache.clear();
+    }
     return _contextCache.putIfAbsent(
         key,
         () => const AstrologyEngine().buildPreviewContext(
@@ -8931,11 +9188,8 @@ class _DailyReadingState extends State<DailyReading> {
           contextFor: _contextFor,
         ),
         DailyTimeFlowCard(date: selectedDate, contextData: readingContext),
-        DailyAstroDataExportCard(
-          date: selectedDate,
-          profile: widget.profile,
-          details: widget.details,
-          contextData: readingContext,
+        const OverallScoreMethodNotice(
+          text: '総合運について：恋愛・仕事・金運・健康・メンタルの4分野を平均して表示しています。',
         ),
         OverallFortuneCard(
           detailed: detailed,
@@ -9106,6 +9360,15 @@ Map<String, Object?> _transitConfigurationSnapshot(HoroscopeReadingContext conte
         (entry) => <String, Object?>{
           'sign': entry.key.label,
           'planets': entry.value.map((planet) => planet.label).toList(),
+          'planet_details': contextData.transit.placements
+              .where((item) => entry.value.contains(item.planet))
+              .map((item) => <String, Object?>{
+                    'planet': item.planet.label,
+                    'sign': item.sign.label,
+                    'degree': item.degree,
+                    'house': item.house,
+                  })
+              .toList(),
         },
       )
       .toList();
@@ -9114,7 +9377,9 @@ Map<String, Object?> _transitConfigurationSnapshot(HoroscopeReadingContext conte
     'transit_stelliums': stelliums,
     'transit_grand_trines': FortuneScoreCalculator.transitGrandTrineLabels(contextData),
     'transit_rare_patterns': FortuneScoreCalculator.transitRarePatternLabels(contextData),
+    'transit_rare_pattern_details': FortuneScoreCalculator.transitRarePatternDetails(contextData).map((item) => item.toJson()).toList(),
     'natal_rare_patterns': FortuneScoreCalculator.natalRarePatternLabels(contextData),
+    'natal_rare_pattern_details': FortuneScoreCalculator.natalRarePatternDetails(contextData).map((item) => item.toJson()).toList(),
   };
 }
 
@@ -9215,15 +9480,21 @@ class DailyAstroDataExportCard extends StatelessWidget {
       await Future<void>.delayed(const Duration(milliseconds: 120));
       final directory = await getTemporaryDirectory();
       final day = '${date.year.toString().padLeft(4, '0')}${date.month.toString().padLeft(2, '0')}${date.day.toString().padLeft(2, '0')}';
-      final file = File('${directory.path}${Platform.pathSeparator}pancyo_astrology_daily_$day.json');
-      await file.writeAsString(const JsonEncoder.withIndent('  ').convert(_data()), flush: true);
+      final createdAt = DateTime.now();
+      final timestamp = '${createdAt.year.toString().padLeft(4, '0')}${createdAt.month.toString().padLeft(2, '0')}${createdAt.day.toString().padLeft(2, '0')}_${createdAt.hour.toString().padLeft(2, '0')}${createdAt.minute.toString().padLeft(2, '0')}${createdAt.second.toString().padLeft(2, '0')}_${createdAt.millisecond.toString().padLeft(3, '0')}';
+      final data = _data();
+      final scores = data['fortune_scores']! as Map<String, Object?>;
+      final file = File('${directory.path}${Platform.pathSeparator}pancyo_astrology_daily_${day}_$timestamp.json');
+      await file.writeAsString(const JsonEncoder.withIndent('  ').convert(data), flush: true);
       if (context.mounted && progressOpen) {
         Navigator.of(context, rootNavigator: true).pop();
         progressOpen = false;
       }
       await Share.shareXFiles([XFile(file.path)], subject: 'ぱんちょ式星占い AIチャット相談用データ');
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('JSONを作成しました。共有先または保存先を選んでください。')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('JSONを作成しました（総合${scores['overall']}・恋愛${scores['love']}・仕事${scores['work']}・金運${scores['money']}・健康${scores['mental']}点）。共有先または保存先を選んでください。')),
+        );
       }
     } catch (_) {
       if (context.mounted && progressOpen) Navigator.of(context, rootNavigator: true).pop();
@@ -9550,8 +9821,8 @@ class DailyAstroEventsCard extends StatelessWidget {
     for (final label in FortuneScoreCalculator.transitGrandTrineLabels(contextData)) {
       events.add('12:00　グランドトライン（$label）：得意なことを具体的な行動へつなげる');
     }
-    for (final label in FortuneScoreCalculator.transitRarePatternLabels(contextData)) {
-      events.add('12:00　$label：${FortuneScoreCalculator.rarePatternGuidance(label)}');
+    for (final pattern in FortuneScoreCalculator.transitRarePatternDetails(contextData)) {
+      events.add('12:00　${pattern.label}（${pattern.planets.map((planet) => planet.label).join('・')}）：${FortuneScoreCalculator.rarePatternGuidance(pattern.label)}');
     }
     return events;
   }
@@ -10065,8 +10336,14 @@ class _LongRangeReadingState extends State<LongRangeReading> {
   int _yearOffset = 0;
   int _weekOffset = 0;
   bool _navigationBusy = false;
+  bool _chartLoaded = false;
   final _contextCache = <String, HoroscopeReadingContext>{};
   final _cardsCache = <String, List<LongFortuneData>>{};
+
+  // 10年グラフ（最大240基準時刻）を一度読んでも、長時間の期間移動で
+  // キャッシュが無限に増えないようにする。通常の再訪問は十分に保持する。
+  static const _maxContextCacheEntries = 384;
+  static const _maxCardsCacheEntries = 48;
 
   Future<void> _startNavigation(VoidCallback action) async {
     if (_navigationBusy) return;
@@ -10131,7 +10408,10 @@ class _LongRangeReadingState extends State<LongRangeReading> {
           month: targetMonth,
           year: targetYear,
           busy: _navigationBusy,
-          onModeChanged: (value) => _startNavigation(() => _mode = value),
+          onModeChanged: (value) => _startNavigation(() {
+            _mode = value;
+            _chartLoaded = false;
+          }),
           onPrevious: () => _startNavigation(() {
             if (_mode == LongRangeMode.year) {
               _yearOffset--;
@@ -10140,6 +10420,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
             } else {
               _monthOffset--;
             }
+            _chartLoaded = false;
           }),
           onNext: () => _startNavigation(() {
             if (_mode == LongRangeMode.year) {
@@ -10149,6 +10430,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
             } else {
               _monthOffset++;
             }
+            _chartLoaded = false;
           }),
           onCurrent: () => _startNavigation(() {
             if (_mode == LongRangeMode.year) {
@@ -10158,6 +10440,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
             } else {
               _monthOffset = 0;
             }
+            _chartLoaded = false;
           }),
           onSelectDate: (value) => _startNavigation(() {
             if (_mode == LongRangeMode.year) {
@@ -10169,6 +10452,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
               final selectedWeek = selectedDay.subtract(Duration(days: selectedDay.weekday - 1));
               _weekOffset = selectedWeek.difference(currentWeekStart).inDays ~/ 7;
             }
+            _chartLoaded = false;
           }),
         ),
         ProfileReflectionNotice(hasProfileDetails: widget.details.hasAny),
@@ -10176,32 +10460,44 @@ class _LongRangeReadingState extends State<LongRangeReading> {
         if (detailed && !periodContext.usesHighPrecisionAstroData)
           AstroDataSourceNotice(contextData: periodContext),
         if (detailed) LongRangeAstroNotice(mode: _mode),
-        ExternalAstroDataExportCard(
-          mode: _mode,
-          periodLabel: shareLabel,
-          weekStart: targetWeek,
-          month: targetMonth,
-          year: targetYear,
-          profile: widget.profile,
-          details: widget.details,
-          contextData: periodContext,
-          cards: cards,
-        ),
         SizedBox(height: detailed ? 14 : 10),
-        LongRangeChart(
-          mode: _mode,
-          weekStart: targetWeek,
-          yearMode: _mode == LongRangeMode.year,
-          month: targetMonth,
-          year: targetYear,
-          contextFor: _contextFor,
-          cardsForStart: (date) => switch (_mode) {
-            LongRangeMode.week => _weekCards(DateTime(date.year, date.month, date.day)),
-            LongRangeMode.month => _monthCards(DateTime(date.year, date.month)),
-            LongRangeMode.year => _yearCards(date.year),
+        if (_chartLoaded)
+          LongRangeChart(
+            mode: _mode,
+            weekStart: targetWeek,
+            yearMode: _mode == LongRangeMode.year,
+            month: targetMonth,
+            year: targetYear,
+            contextFor: _contextFor,
+            cardsForStart: (date) => switch (_mode) {
+              LongRangeMode.week => _weekCards(DateTime(date.year, date.month, date.day)),
+              LongRangeMode.month => _monthCards(DateTime(date.year, date.month)),
+              LongRangeMode.year => _yearCards(date.year),
+            },
+          )
+        else
+          GlassPanel(
+            padding: const EdgeInsets.all(16),
+            child: Row(children: [
+              Expanded(child: Text(
+                _mode == LongRangeMode.year
+                    ? '10年分を計算するため、読み込みに少し時間がかかります。'
+                    : _mode == LongRangeMode.month
+                        ? '同じ年の12か月分を計算するため、読み込みに少し時間がかかります。'
+                        : '運勢の流れグラフは必要なときだけ読み込みます。',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              )),
+              OutlinedButton.icon(onPressed: () => setState(() => _chartLoaded = true), icon: const Icon(Icons.show_chart_outlined, size: 18), label: const Text('グラフを読む')),
+            ]),
+          ),
+        const SizedBox(height: 14),
+        OverallScoreMethodNotice(
+          text: switch (_mode) {
+            LongRangeMode.week => '総合運について：4分野の平均を7日分で集計しています。',
+            LongRangeMode.month => '総合運について：4分野の平均を月内5時点で集計しています。',
+            LongRangeMode.year => '総合運について：4分野の平均を年内24時点で集計しています。',
           },
         ),
-        const SizedBox(height: 14),
         LongFortuneCard(
           data: cards.first,
           detailed: detailed,
@@ -10253,6 +10549,10 @@ class _LongRangeReadingState extends State<LongRangeReading> {
 
   HoroscopeReadingContext _contextFor(DateTime date) {
     final key = '${date.toIso8601String()}|${HouseSystemSettings.current.value.name}';
+    if (!_contextCache.containsKey(key) &&
+        _contextCache.length >= _maxContextCacheEntries) {
+      _contextCache.clear();
+    }
     return _contextCache.putIfAbsent(
       key,
       () => const AstrologyEngine().buildPreviewContext(
@@ -10280,6 +10580,10 @@ class _LongRangeReadingState extends State<LongRangeReading> {
       widget.details.readingStyle,
       HouseSystemSettings.current.value.name,
     ].join('|');
+    if (!_cardsCache.containsKey(key) &&
+        _cardsCache.length >= _maxCardsCacheEntries) {
+      _cardsCache.clear();
+    }
     return _cardsCache.putIfAbsent(
       key,
       () => switch (_mode) {
@@ -10375,20 +10679,13 @@ class _LongRangeReadingState extends State<LongRangeReading> {
     if (title == '総合運') {
       final overallReturnBonus = FortuneScoreCalculator.overallReturnBonus(contextData);
       if (yearMode) {
-        final hasAnnualBonus = hasOverallReturnBonus ?? overallReturnBonus != null;
-        final method = hasAnnualBonus
-            ? '年の総合運は、各確認時点の4分野平均へ最強リターン特例を加え、24時点で集計しています。'
-            : '年の総合運は、各確認時点の4分野平均を24時点で集計しています。';
-        if (score >= 82) return '$periodの総合運は追い風です。$method$reason 春から初夏に整えた土台を夏以降に広げ、秋は成果を選び取るほど手応えが残ります。$caution';
-        if (score < 66) return '$periodの総合運は慎重な整え直しがテーマです。$method$reason 季節ごとに生活と約束を見直し、年末へ向けて無理のない形へ整えると余裕が戻ります。$caution';
-        return '$periodの総合運は安定寄りです。$method$reason 春から夏は整理と育成、秋から年末は整ったものを広げる流れが合います。$caution';
+        if (score >= 82) return '$periodの総合運は追い風です。$reason 春から初夏に整えた土台を夏以降に広げ、秋は成果を選び取るほど手応えが残ります。$caution';
+        if (score < 66) return '$periodの総合運は慎重な整え直しがテーマです。$reason 季節ごとに生活と約束を見直し、年末へ向けて無理のない形へ整えると余裕が戻ります。$caution';
+        return '$periodの総合運は安定寄りです。$reason 春から夏は整理と育成、秋から年末は整ったものを広げる流れが合います。$caution';
       }
-      final method = overallReturnBonus == null
-          ? '総合運は恋愛・仕事・金運・健康・メンタルの4分野の平均です。'
-          : '総合運は4分野の平均を土台に、${overallReturnBonus.planet.label}リターン特例も反映しています。';
-      if (score >= 82) return '$periodの総合運は追い風です。$method$reason 前半で準備したことを後半へ広げるほど、手応えが残ります。$caution';
-      if (score < 66) return '$periodの総合運は慎重な整え直しがテーマです。$method$reason 大きな変更は急がず、生活と約束を一つずつ安定させると後半に余裕が戻ります。$caution';
-      return '$periodの総合運は安定寄りです。$method$reason 前半は整理、後半は整ったものを少し広げる流れが合います。$caution';
+      if (score >= 82) return '$periodの総合運は追い風です。$reason 前半で準備したことを後半へ広げるほど、手応えが残ります。$caution';
+      if (score < 66) return '$periodの総合運は慎重な整え直しがテーマです。$reason 大きな変更は急がず、生活と約束を一つずつ安定させると後半に余裕が戻ります。$caution';
+      return '$periodの総合運は安定寄りです。$reason 前半は整理、後半は整ったものを少し広げる流れが合います。$caution';
     }
 
     final focus = switch (title) {
@@ -10583,6 +10880,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
         .whereType<({AstroPlanet planet, double value, String detail, String formula})>()
         .toList();
     final overallReturnLabels = overallReturnBonuses.map((bonus) => bonus.planet.label).toSet();
+    final periodReturnPeak = FortuneScoreCalculator.periodReturnPeakBonus(contexts);
     LongFortuneData makeCard({
       required String title,
       required FortuneArea area,
@@ -10594,7 +10892,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
       required String backPlan,
       required String carefulPlan,
     }) {
-      final score = average(values);
+      final score = (average(values) + (title == '総合運' ? (periodReturnPeak?.value ?? 0) : 0)).round().clamp(50, 99).toInt();
       final best = bestIndex(values);
       final low = lowIndex(values);
       final highestScore = values.reduce(math.max);
@@ -10621,7 +10919,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
               ? '無理を減らすほど整う週です。'
               : '小さく動いて反応を見る週です。';
       final overallMethod = title == '総合運'
-          ? '総合運は、各日の恋愛・仕事・金運・健康・メンタルの4分野の平均を、7日分で集計しています。'
+          ? '${periodReturnPeak == null ? '' : '${periodReturnPeak.planet.label}リターンの期間ピーク+${periodReturnPeak.value.toStringAsFixed(1)}点も反映しています。'}'
           : '';
       return LongFortuneData(
         title: title,
@@ -10698,7 +10996,8 @@ class _LongRangeReadingState extends State<LongRangeReading> {
         contexts[index],
       ),
     );
-    final overallScore = average(overallScores);
+    final periodReturnPeak = FortuneScoreCalculator.periodReturnPeakBonus(contexts);
+    final overallScore = (average(overallScores) + (periodReturnPeak?.value ?? 0)).round().clamp(50, 99).toInt();
     final overallReturnBonuses = contexts
         .map(FortuneScoreCalculator.overallReturnBonus)
         .whereType<({AstroPlanet planet, double value, String detail, String formula})>()
@@ -10737,7 +11036,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
           ? 'この月は体調・メンタルを気にかけ、睡眠・食事・休憩の土台を先に整えましょう。'
           : '';
       final overallMethod = title == '総合運'
-          ? '総合運は、各確認日の恋愛・仕事・金運・健康・メンタルの4分野の平均を、月内5時点で集計しています。'
+          ? ''
           : '';
       return '${targetMonth.year}年${targetMonth.month}月の$titleは5時点の星配置で判定しています。$overallMethod$flow$signal$action$retrogradeNote$healthNote';
     }
@@ -10939,6 +11238,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
         : annualReturnBonuses.fold<double>(0, (sum, bonus) => sum + bonus.value) / annualContexts.length;
     final annualReturnLabels = annualReturnBonuses.map((bonus) => bonus.planet.label).toSet();
     final annualReturnExample = annualReturnBonuses.isEmpty ? null : annualReturnBonuses.first;
+    final annualLifeEventBoost = FortuneScoreCalculator.annualLifeEventBoost(annualContexts);
     final annualOverallScores = List<int>.generate(annualContexts.length, (index) {
       final context = annualContexts[index];
       return FortuneScoreCalculator.overallWithReturnBonus([
@@ -10948,7 +11248,11 @@ class _LongRangeReadingState extends State<LongRangeReading> {
         _periodScore(FortuneArea.mental, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.mental)),
       ], context);
     });
-    final overallScore = FortuneScoreCalculator.overallFromAreas(annualOverallScores);
+    final annualAverageOverallScore = FortuneScoreCalculator.overallFromAreas(annualOverallScores);
+    final overallScore = (annualAverageOverallScore + (annualLifeEventBoost?.value ?? 0))
+        .round()
+        .clamp(50, 99)
+        .toInt();
 
     String yearDetailedText(String title, FortuneArea area, int score) {
       final returns = annualContexts
@@ -10970,6 +11274,10 @@ class _LongRangeReadingState extends State<LongRangeReading> {
           : aspects.isNotEmpty
               ? '${aspects.first.transitPlanet.label}と出生図の${aspects.first.natalPlanet.label}の${aspects.first.type.label}が年間の主な変動要因です。'
               : '強い突出は少なめで、季節ごとの見直しが成果につながります。';
+      final annualPeakHint = area == FortuneArea.overall && annualLifeEventBoost != null
+          ? '${annualLifeEventBoost.detail}が、この年の流れが最も強まりやすい山です。'
+          : '';
+      final narrativeSignal = area == FortuneArea.overall && annualLifeEventBoost != null ? '' : signal;
       final action = switch (title) {
         '総合運' => '季節ごとに優先テーマを定め、負担と成果を見直しましょう。',
         '恋愛運' => '関係を進める時期と距離を整える時期を分け、相手の反応を確かめましょう。',
@@ -10984,11 +11292,9 @@ class _LongRangeReadingState extends State<LongRangeReading> {
           ? 'この年は体調・メンタルを気にかけ、忙しい季節ほど休養を先に予定しましょう。'
           : '';
       final overallMethod = area == FortuneArea.overall
-          ? '総合運は、恋愛・仕事・金運・健康・メンタルの年点数平均${baseOverallScore}点を土台にしています。'
-              '${annualReturnLabels.isNotEmpty ? '年内24時点の総合リターン特例平均+${annualReturnBonus.toStringAsFixed(1)}点（${annualReturnLabels.join('・')}、各時点で最強1件）、' : ''}'
-              '各時点の特例反映後の総合点を平均して${overallScore}点にしています。'
+          ? '年全体を24時点で読み、強い節目を重ねています。点数と式は下の「この点数の理由」で確認できます。'
           : '';
-      return '$targetYear年の$titleは各月の初旬・中旬の24時点で判定しています。$overallMethod$outlook$signal$action$retrogradeText$healthNote';
+      return '$targetYear年の$title。$overallMethod$outlook$narrativeSignal$annualPeakHint$action$retrogradeText$healthNote';
     }
 
     List<String> yearEvidence(FortuneArea area, int score) {
@@ -11019,9 +11325,11 @@ class _LongRangeReadingState extends State<LongRangeReading> {
           '総合リターン特例の24時点平均: +${annualReturnBonus.toStringAsFixed(1)}点（${annualReturnLabels.join('・')}）',
         if (area == FortuneArea.overall && annualReturnExample != null)
           '特例の式（例）: ${annualReturnExample.planet.label} ${annualReturnExample.detail} / ${annualReturnExample.formula}',
+        if (area == FortuneArea.overall && annualLifeEventBoost != null)
+          '年専用の人生イベント補正: +${annualLifeEventBoost.value.toStringAsFixed(1)}点（${annualLifeEventBoost.detail}） / ${annualLifeEventBoost.formula}',
         if (dignityDetails.isNotEmpty)
           '天体のサイン品位: ${dignityDetails.take(3).join(' / ')}${dignityDetails.length > 3 ? ' ほか${dignityDetails.length - 3}件' : ''} / $dignityFormula',
-        if (area == FortuneArea.overall) '最終: 特例反映後の24時点の総合点平均 → $score点（50〜99点）',
+        if (area == FortuneArea.overall) '最終: 特例反映後の24時点平均$annualAverageOverallScore点${annualLifeEventBoost == null ? '' : ' + 年専用補正${annualLifeEventBoost.value.toStringAsFixed(1)}点'} → $score点（50〜99点）',
         '$targetYear年の24時点を集計: $score点',
         if (aspects.isNotEmpty) '主要: ${aspects.first.label}',
         if (returns.isNotEmpty) '実際のリターン: ${returns.join('・')}',
@@ -11262,7 +11570,7 @@ class LongRangeAstroNotice extends StatelessWidget {
     final text = switch (mode) {
       LongRangeMode.week => '4週間分の週間占いカードと同じ点数から、週ごとの流れを反映。',
       LongRangeMode.month => '同じ年の12か月分の月間占いカードと同じ点数から、月ごとの流れを反映。',
-      LongRangeMode.year => '5年分の年間占いカードと同じ点数から、長期の流れを反映。',
+      LongRangeMode.year => '10年分の年間占いカードと同じ点数から、長期の流れを反映。',
     };
 
     return Container(
@@ -11320,18 +11628,20 @@ class LongRangeChart extends StatefulWidget {
 
 class _LongRangeChartState extends State<LongRangeChart> {
   bool get _showDecade => widget.mode == LongRangeMode.year;
+  String? _cachedSeriesKey;
+  List<FortuneFlowSeries>? _cachedSeries;
 
   @override
   Widget build(BuildContext context) {
     final labels = _showDecade
-        ? List<String>.generate(5, (index) => '${widget.year + index}')
+        ? List<String>.generate(10, (index) => '${widget.year + index}')
         : widget.mode == LongRangeMode.week
             ? List<String>.generate(4, (index) {
                 final date = widget.weekStart.add(Duration(days: index * 7));
                 return '${date.month}/${date.day}週';
               })
             : List<String>.generate(12, (index) => '${index + 1}月');
-    final series = _periodSeries();
+    final series = _seriesForCurrentPeriod();
 
     return GlassPanel(
       padding: const EdgeInsets.all(18),
@@ -11348,7 +11658,7 @@ class _LongRangeChartState extends State<LongRangeChart> {
               ),
               Text(
                 _showDecade
-                    ? '${widget.year}〜${widget.year + 4}年'
+                    ? '${widget.year}〜${widget.year + 9}年'
                     : widget.mode == LongRangeMode.week
                         ? '1週間ごとの4週間'
                         : '${widget.month.year}年の月ごとの推移',
@@ -11399,7 +11709,7 @@ class _LongRangeChartState extends State<LongRangeChart> {
     // グラフは近似値を再計算せず、各期間カードに出す実点数をそのまま使う。
     // これで「カードは91点、グラフは82点」のような食い違いをなくす。
     final points = _showDecade
-        ? List<DateTime>.generate(5, (index) => DateTime(widget.year + index, 1, 1, 12))
+        ? List<DateTime>.generate(10, (index) => DateTime(widget.year + index, 1, 1, 12))
         : widget.mode == LongRangeMode.week
             ? List<DateTime>.generate(4, (index) => widget.weekStart.add(Duration(days: index * 7)))
             : List<DateTime>.generate(12, (index) => DateTime(widget.month.year, index + 1, 1, 12));
@@ -11434,6 +11744,23 @@ class _LongRangeChartState extends State<LongRangeChart> {
         values: values('健康・メンタル運'),
       ),
     ];
+  }
+
+  List<FortuneFlowSeries> _seriesForCurrentPeriod() {
+    final key = [
+      widget.mode.name,
+      widget.weekStart.toIso8601String(),
+      widget.month.year,
+      widget.month.month,
+      widget.year,
+    ].join('|');
+    if (_cachedSeriesKey == key && _cachedSeries != null) {
+      return _cachedSeries!;
+    }
+    final series = _periodSeries();
+    _cachedSeriesKey = key;
+    _cachedSeries = series;
+    return series;
   }
 
 }
@@ -11767,6 +12094,183 @@ class ExternalAstroDataExportCard extends StatelessWidget {
     });
   }
 
+  Map<String, Object?>? _annualLifeEventBoostSnapshot() {
+    if (mode != LongRangeMode.year) return null;
+    final contexts = <HoroscopeReadingContext>[
+      for (var monthIndex = 1; monthIndex <= 12; monthIndex++)
+        const AstrologyEngine().buildPreviewContext(profile: profile, date: DateTime(year, monthIndex, 1, 12)),
+      for (var monthIndex = 1; monthIndex <= 12; monthIndex++)
+        const AstrologyEngine().buildPreviewContext(profile: profile, date: DateTime(year, monthIndex, 15, 12)),
+    ];
+    final boost = FortuneScoreCalculator.annualLifeEventBoost(contexts);
+    if (boost == null) return null;
+    return {
+      'value': double.parse(boost.value.toStringAsFixed(2)),
+      'detail': boost.detail,
+      'formula': boost.formula,
+      'rule': '年運のみ。木星・土星・外惑星などのリターン、ASC/MCへのタイトな調和アスペクト、良いレア配置から最強1件だけを選び、最大+3.5点。',
+    };
+  }
+
+  /// プロフィール画面からの出力には画面カードを渡さないため、ここで同じ集計値を
+  /// 作る。日別・月別の明細だけでなく、先頭の期間スコアも空にしない。
+  List<Map<String, Object?>> _periodScores() {
+    if (cards.isNotEmpty) {
+      return cards.map((item) => {
+            'area': item.title,
+            'score': item.score,
+            'sign': item.sign,
+            'secondary_sign': item.secondarySign,
+            'transit_house': item.transitHouse,
+            'natal_house': item.natalHouse,
+            'aspect_basis': '代表日（${_dateTimeJst(contextData.transit.date)}）: ${item.aspectBasis.replaceFirst('現在の', '')}',
+            'evidence': item.evidence,
+            'score_aggregation': _scoreAggregation,
+            'representative_transit_scope': 'sign・transit_house・natal_house・aspect_basisは期間開始日12:00 JSTの代表配置',
+            'basis_note': 'scoreは${_scoreAggregation}です。日別の配置と点数はdaily_scores、年間の月別データはannual_monthsを参照してください。',
+            'representative_transit_date_jst': _dateTimeJst(contextData.transit.date),
+          }).toList();
+    }
+
+    int average(List<int> values) =>
+        (values.reduce((sum, value) => sum + value) / values.length).round();
+    List<Map<String, Object?>> entries({
+      required int overall,
+      required int love,
+      required int work,
+      required int money,
+      required int mental,
+      String? overallEvidence,
+    }) => [
+      _periodScoreEntry(area: '総合運', score: overall, evidence: [
+        '総合運: 4分野平均を${_scoreAggregation}で集計',
+        if (overallEvidence != null) overallEvidence,
+      ]),
+      _periodScoreEntry(area: '恋愛運', score: love),
+      _periodScoreEntry(area: '仕事運', score: work),
+      _periodScoreEntry(area: '金運', score: money),
+      _periodScoreEntry(area: '健康・メンタル運', score: mental),
+    ];
+
+    if (mode == LongRangeMode.week) {
+      final contexts = List.generate(7, (index) {
+        final date = weekStart.add(Duration(days: index));
+        return const AstrologyEngine().buildPreviewContext(
+          profile: profile,
+          date: DateTime(date.year, date.month, date.day, 12),
+        );
+      });
+      List<int> scores(FortuneArea area) => contexts
+          .map((context) => FortuneScoreCalculator.dailyArea(
+                context,
+                area,
+                FortuneScoreCalculator.standardBase(area),
+              ))
+          .toList();
+      final loveScores = scores(FortuneArea.love);
+      final workScores = scores(FortuneArea.work);
+      final moneyScores = scores(FortuneArea.money);
+      final mentalScores = scores(FortuneArea.mental);
+      final overallSamples = List.generate(contexts.length, (index) =>
+          FortuneScoreCalculator.overallWithReturnBonus([
+            loveScores[index], workScores[index], moneyScores[index], mentalScores[index],
+          ], contexts[index]));
+      final peak = FortuneScoreCalculator.periodReturnPeakBonus(contexts);
+      return entries(
+        overall: (average(overallSamples) + (peak?.value ?? 0)).round().clamp(50, 99).toInt(),
+        love: average(loveScores),
+        work: average(workScores),
+        money: average(moneyScores),
+        mental: average(mentalScores),
+        overallEvidence: peak == null ? null : '期間ピーク補正: ${peak.planet.label}+${peak.value.toStringAsFixed(1)}点（${peak.detail}）',
+      );
+    }
+
+    if (mode == LongRangeMode.month) {
+      final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+      final dates = <int>{1, 8, 15, 22, daysInMonth}
+          .map((day) => DateTime(month.year, month.month, day, 12))
+          .toList()
+        ..sort();
+      final contexts = dates.map((date) => const AstrologyEngine().buildPreviewContext(
+            profile: profile,
+            date: date,
+          )).toList();
+      List<int> scores(FortuneArea area) => List.generate(contexts.length, (index) =>
+          FortuneScoreCalculator.periodArea(
+            area,
+            contexts[index],
+            dates[index],
+            FortuneScoreCalculator.standardBase(area),
+          ));
+      final loveScores = scores(FortuneArea.love);
+      final workScores = scores(FortuneArea.work);
+      final moneyScores = scores(FortuneArea.money);
+      final mentalScores = scores(FortuneArea.mental);
+      final overallSamples = List.generate(contexts.length, (index) =>
+          FortuneScoreCalculator.overallWithReturnBonus([
+            loveScores[index], workScores[index], moneyScores[index], mentalScores[index],
+          ], contexts[index]));
+      final peak = FortuneScoreCalculator.periodReturnPeakBonus(contexts);
+      return entries(
+        overall: (average(overallSamples) + (peak?.value ?? 0)).round().clamp(50, 99).toInt(),
+        love: average(loveScores),
+        work: average(workScores),
+        money: average(moneyScores),
+        mental: average(mentalScores),
+        overallEvidence: peak == null ? null : '期間ピーク補正: ${peak.planet.label}+${peak.value.toStringAsFixed(1)}点（${peak.detail}）',
+      );
+    }
+
+    final contexts = <HoroscopeReadingContext>[
+      for (var monthIndex = 1; monthIndex <= 12; monthIndex++)
+        const AstrologyEngine().buildPreviewContext(profile: profile, date: DateTime(year, monthIndex, 1, 12)),
+      for (var monthIndex = 1; monthIndex <= 12; monthIndex++)
+        const AstrologyEngine().buildPreviewContext(profile: profile, date: DateTime(year, monthIndex, 15, 12)),
+    ];
+    int annualArea(FortuneArea area) => FortuneScoreCalculator.overallFromAreas(
+          List.generate(12, (index) {
+            final first = contexts[index];
+            final middle = contexts[index + 12];
+            final firstScore = FortuneScoreCalculator.periodArea(area, first, first.transit.date, FortuneScoreCalculator.standardBase(area));
+            final middleScore = FortuneScoreCalculator.periodArea(area, middle, middle.transit.date, FortuneScoreCalculator.standardBase(area));
+            return ((firstScore + middleScore) / 2).round();
+          }),
+        );
+    final love = annualArea(FortuneArea.love);
+    final work = annualArea(FortuneArea.work);
+    final money = annualArea(FortuneArea.money);
+    final mental = annualArea(FortuneArea.mental);
+    final overallSamples = contexts.map((context) => FortuneScoreCalculator.overallWithReturnBonus([
+          FortuneScoreCalculator.periodArea(FortuneArea.love, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.love)),
+          FortuneScoreCalculator.periodArea(FortuneArea.work, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.work)),
+          FortuneScoreCalculator.periodArea(FortuneArea.money, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.money)),
+          FortuneScoreCalculator.periodArea(FortuneArea.mental, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.mental)),
+        ], context)).toList();
+    final annualBoost = FortuneScoreCalculator.annualLifeEventBoost(contexts);
+    return entries(
+      overall: (FortuneScoreCalculator.overallFromAreas(overallSamples) + (annualBoost?.value ?? 0)).round().clamp(50, 99).toInt(),
+      love: love,
+      work: work,
+      money: money,
+      mental: mental,
+      overallEvidence: annualBoost == null ? null : '年専用の人生イベント補正: +${annualBoost.value.toStringAsFixed(1)}点（${annualBoost.detail}）',
+    );
+  }
+
+  Map<String, Object?> _periodScoreEntry({
+    required String area,
+    required int score,
+    List<String> evidence = const [],
+  }) => {
+        'area': area,
+        'score': score,
+        'evidence': evidence,
+        'score_aggregation': _scoreAggregation,
+        'basis_note': 'scoreは${_scoreAggregation}です。日別の配置と点数はdaily_scores、年間の月別データはannual_monthsを参照してください。',
+        'representative_transit_date_jst': _dateTimeJst(contextData.transit.date),
+      };
+
   Map<String, Object?> _data() => {
         'schema': 'pancyo_astrology_external_consult_v2',
         'generated_at': DateTime.now().toIso8601String(),
@@ -11795,22 +12299,8 @@ class ExternalAstroDataExportCard extends StatelessWidget {
         // 旧v1のtransit_placementsは月初日の値を日付なしで出していた。
         // v2では期間開始日を明示し、月間は日別、年間は月別の配置を併記する。
         'period_start_transit': _transitSnapshot(contextData),
-        'period_scores': cards.map((item) => {
-              'area': item.title,
-              'score': item.score,
-              'sign': item.sign,
-              'secondary_sign': item.secondarySign,
-              'transit_house': item.transitHouse,
-              'natal_house': item.natalHouse,
-              // 点数は期間内の複数時点を集計し、配置説明だけは代表日を使う。
-              // 「現在の」とだけ書くと、daily_scoresの各日付と混同される。
-              'aspect_basis': '代表日（${_dateTimeJst(contextData.transit.date)}）: ${item.aspectBasis.replaceFirst('現在の', '')}',
-              'evidence': item.evidence,
-              'score_aggregation': _scoreAggregation,
-              'representative_transit_scope': 'sign・transit_house・natal_house・aspect_basisは期間開始日12:00 JSTの代表配置',
-              'basis_note': 'scoreは${_scoreAggregation}です。日別の配置と点数はdaily_scores、年間の月別データはannual_monthsを参照してください。',
-              'representative_transit_date_jst': _dateTimeJst(contextData.transit.date),
-            }).toList(),
+        'period_scores': _periodScores(),
+        if (mode == LongRangeMode.year) 'annual_life_event_boost': _annualLifeEventBoostSnapshot(),
         if (mode == LongRangeMode.week)
           'daily_scores': List.generate(
             7,
@@ -15151,12 +15641,141 @@ class ProfileView extends StatelessWidget {
           onSaved: onSaved,
         ),
         const HouseSystemSelector(),
+        ProfileAstroJsonExportCard(profile: profile, details: details),
         ProfileDataUtilityCard(profile: profile),
         const AppLicenseInfoCard(),
         const CreatorProfileCard(),
       ],
     );
   }
+}
+
+class ProfileAstroJsonExportCard extends StatefulWidget {
+  const ProfileAstroJsonExportCard({super.key, required this.profile, required this.details});
+  final AstroProfile profile;
+  final UserProfileDetails details;
+
+  @override
+  State<ProfileAstroJsonExportCard> createState() => _ProfileAstroJsonExportCardState();
+}
+
+class _ProfileAstroJsonExportCardState extends State<ProfileAstroJsonExportCard> {
+  late DateTime _selectedDay;
+  late DateTime _selectedMonth;
+  late int _selectedYear;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _selectedDay = DateTime(now.year, now.month, now.day);
+    _selectedMonth = DateTime(now.year, now.month);
+    _selectedYear = now.year;
+  }
+
+  HoroscopeReadingContext _context(DateTime date) => const AstrologyEngine().buildPreviewContext(
+        profile: widget.profile,
+        date: DateTime(date.year, date.month, date.day, 12),
+      );
+
+  Future<void> _pickDay() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _selectedDay,
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100, 12, 31),
+      helpText: '詳しく相談したい日を選択',
+      cancelText: '閉じる',
+      confirmText: '決定',
+    );
+    if (selected != null && mounted) {
+      setState(() => _selectedDay = DateTime(selected.year, selected.month, selected.day));
+    }
+  }
+
+  Future<void> _pickMonth() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _selectedMonth,
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100, 12, 31),
+      helpText: '相談したい月を選択',
+      cancelText: '閉じる',
+      confirmText: 'この月にする',
+    );
+    if (selected != null && mounted) {
+      setState(() => _selectedMonth = DateTime(selected.year, selected.month));
+    }
+  }
+
+  Future<void> _pickYear() async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: DateTime(_selectedYear),
+      firstDate: DateTime(1900),
+      lastDate: DateTime(2100, 12, 31),
+      initialDatePickerMode: DatePickerMode.year,
+      helpText: '相談したい年を選択',
+      cancelText: '閉じる',
+      confirmText: 'この年にする',
+    );
+    if (selected != null && mounted) setState(() => _selectedYear = selected.year);
+  }
+
+  Future<void> _daily() {
+    final date = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day, 12);
+    return DailyAstroDataExportCard(
+      date: date,
+      profile: widget.profile,
+      details: widget.details,
+      contextData: _context(date),
+    )._export(context);
+  }
+
+  Future<void> _period(LongRangeMode mode) {
+    final month = DateTime(_selectedMonth.year, _selectedMonth.month, 1, 12);
+    final year = _selectedYear;
+    return ExternalAstroDataExportCard(
+      mode: mode,
+      periodLabel: mode == LongRangeMode.month ? '${month.year}年${month.month}月' : '$year年',
+      weekStart: month,
+      month: month,
+      year: year,
+      profile: widget.profile,
+      details: widget.details,
+      contextData: _context(mode == LongRangeMode.month ? month : DateTime(year, 1, 1, 12)),
+      cards: const [],
+    )._export(context);
+  }
+
+  String _dayLabel(DateTime value) => '${value.year}年${value.month}月${value.day}日';
+  String _monthLabel(DateTime value) => '${value.year}年${value.month}月';
+
+  @override
+  Widget build(BuildContext context) => GlassPanel(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const _SmallSectionLabel(icon: Icons.chat_bubble_outline, text: 'AIチャットで詳しく相談するための占いデータ'),
+          const SizedBox(height: 8),
+          Text('ChatGPTなどへファイルを添えて相談したい時に使います。日・月・年を選ぶと、その期間の詳しい占いデータを作れます。', style: TextStyle(color: Colors.white.withValues(alpha: 0.68), fontSize: 12, height: 1.45)),
+          const SizedBox(height: 10),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(onPressed: _pickDay, icon: const Icon(Icons.event_outlined, size: 18), label: Text('対象日: ${_dayLabel(_selectedDay)}')),
+            FilledButton.icon(onPressed: _daily, icon: const Icon(Icons.today_outlined, size: 18), label: const Text('この日の詳しい占いデータを作る')),
+          ]),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(onPressed: _pickMonth, icon: const Icon(Icons.event_note_outlined, size: 18), label: Text('対象月: ${_monthLabel(_selectedMonth)}')),
+            FilledButton.icon(onPressed: () => _period(LongRangeMode.month), icon: const Icon(Icons.calendar_month_outlined, size: 18), label: const Text('この月の毎日占いデータを作る')),
+          ]),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(onPressed: _pickYear, icon: const Icon(Icons.date_range_outlined, size: 18), label: Text('対象年: $_selectedYear年')),
+            FilledButton.icon(onPressed: () => _period(LongRangeMode.year), icon: const Icon(Icons.auto_graph_outlined, size: 18), label: const Text('この年の年運データを作る')),
+          ]),
+        ]),
+      );
 }
 
 class ProfileDataUtilityCard extends StatelessWidget {
@@ -18900,7 +19519,7 @@ class SwissEphemerisProvider implements EphemerisProvider {
 
   @override
   String get precisionNotice =>
-      'Swiss Ephemeris Free Edition/AGPLをAndroidネイティブで使用しています。現在はアプリ同梱のMoshier計算を使い、追加エフェメリスファイルは後日の任意ダウンロード対象です。月ボイド開始は5分探索後に最後の主要アスペクトの正確時刻へ絞り込みます。';
+      'Swiss Ephemeris Free Edition/AGPLをAndroidネイティブで使用しています。アプリ同梱のMoshier計算で星の位置を算出し、月ボイド開始は5分探索後に最後の主要アスペクトの正確時刻へ絞り込みます。';
 
   @override
   bool get usesHighPrecisionAstroData => true;
