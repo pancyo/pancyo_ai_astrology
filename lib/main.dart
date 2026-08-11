@@ -17065,6 +17065,11 @@ class CreatorProfileCard extends StatelessWidget {
                       label: 'Kindle作品一覧',
                       url: 'https://www.amazon.co.jp/stores/author/B0GJFN5HX8',
                     ),
+                    _CreatorLinkButton(
+                      icon: Icons.privacy_tip_outlined,
+                      label: 'プライバシーポリシー',
+                      url: 'https://pancyo-astrology.netlify.app/privacy.html',
+                    ),
                   ],
                 ),
             ],
