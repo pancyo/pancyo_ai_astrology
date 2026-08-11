@@ -9412,6 +9412,8 @@ class DailyAstroDataExportCard extends StatelessWidget {
     final dayStart = DateTime(date.year, date.month, date.day);
     final stationEvents = DailyAstroEventsCard(date: date, contextData: contextData)
         ._stationEvents(dayStart, dayStart.add(const Duration(days: 1)), AstrologyDataSources.current);
+    final dailyEvents = DailyAstroEventsCard(date: date, contextData: contextData)
+        ._dailyEvents(dayStart, dayStart.add(const Duration(days: 1)), AstrologyDataSources.current);
     return {
       'schema': 'pancyo_astrology_daily_consult_v1',
       'generated_at': DateTime.now().toIso8601String(),
@@ -9459,6 +9461,7 @@ class DailyAstroDataExportCard extends StatelessWidget {
         ...DailyAstroEventsCard.verifiedRetrogradesAt(date),
       }.map((item) => item.label).toList(),
       'station_events_jst': stationEvents,
+      if (dailyEvents.isNotEmpty) 'daily_events_jst': dailyEvents,
       'special_configurations_at_reference_time': _transitConfigurationSnapshot(contextData),
     };
   }
@@ -9665,6 +9668,63 @@ class DailyAstroEventsCard extends StatelessWidget {
       events.add('${_time(time)}頃　${item.planet.label}$label：切替直後は急いで結論を出さず、方針を見直す');
     }
     events.sort();
+    return events;
+  }
+
+  PlanetPlacement? _placementAt(EphemerisProvider ephemeris, AstroPlanet planet, DateTime time) {
+    for (final placement in ephemeris.placementsFor(time)) {
+      if (placement.planet == planet) return placement;
+    }
+    return null;
+  }
+
+  /// AIが度数だけからサイン移動を推測しなくて済むよう、当日に確定した
+  /// 天文イベントだけを時刻付きでまとめる。通常日はJSONへ出力しない。
+  List<Map<String, Object?>> _dailyEvents(DateTime start, DateTime end, EphemerisProvider ephemeris) {
+    final events = <Map<String, Object?>>[];
+    for (final planet in const [
+      AstroPlanet.sun,
+      AstroPlanet.moon,
+      AstroPlanet.mercury,
+      AstroPlanet.venus,
+      AstroPlanet.mars,
+      AstroPlanet.jupiter,
+      AstroPlanet.saturn,
+      AstroPlanet.uranus,
+      AstroPlanet.neptune,
+      AstroPlanet.pluto,
+    ]) {
+      final ingress = ephemeris.nextSignIngress(planet, start);
+      if (ingress == null || ingress.time.isBefore(start) || !ingress.time.isBefore(end)) continue;
+      final before = _placementAt(ephemeris, planet, ingress.time.subtract(const Duration(minutes: 1)));
+      events.add({
+        'event_type': 'sign_ingress',
+        'time_jst': _dateTimeJst(ingress.time),
+        'planet': planet.label,
+        'from_sign': before?.sign.label,
+        'to_sign': ingress.sign.label,
+        'label': '${planet.label}: ${before?.sign.label ?? '移動前の星座'} → ${ingress.sign.label}',
+      });
+    }
+
+    final lunarPhase = _lunarPhaseSnapshot(start.add(const Duration(hours: 12)), ephemeris);
+    final majorPhase = lunarPhase['major_phase_event_jst'] as Map<String, Object?>?;
+    if (majorPhase != null) {
+      events.add({
+        'event_type': 'major_lunar_phase',
+        'time_jst': majorPhase['time_jst'],
+        'phase_key': majorPhase['key'],
+        'label': majorPhase['label'],
+      });
+    }
+
+    for (final station in _stationEvents(start, end, ephemeris)) {
+      events.add({
+        'event_type': 'station',
+        'description_jst': station,
+      });
+    }
+    events.sort((left, right) => (left['time_jst'] as String? ?? '').compareTo(right['time_jst'] as String? ?? ''));
     return events;
   }
 
@@ -11985,6 +12045,8 @@ class ExternalAstroDataExportCard extends StatelessWidget {
     final dayStart = DateTime(context.transit.date.year, context.transit.date.month, context.transit.date.day);
     final stationEvents = DailyAstroEventsCard(date: context.transit.date, contextData: context)
         ._stationEvents(dayStart, dayStart.add(const Duration(days: 1)), AstrologyDataSources.current);
+    final dailyEvents = DailyAstroEventsCard(date: context.transit.date, contextData: context)
+        ._dailyEvents(dayStart, dayStart.add(const Duration(days: 1)), AstrologyDataSources.current);
     return {
       'date_time_jst': _dateTimeJst(context.transit.date),
       'placements': _placements(context),
@@ -12004,6 +12066,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
         ...DailyAstroEventsCard.verifiedRetrogradesAt(context.transit.date),
       }.map((item) => item.label).toList(),
       'station_events_jst': stationEvents,
+      if (dailyEvents.isNotEmpty) 'daily_events_jst': dailyEvents,
       'special_configurations_at_reference_time': _transitConfigurationSnapshot(context),
     };
   }
@@ -12022,6 +12085,10 @@ class ExternalAstroDataExportCard extends StatelessWidget {
 
   Map<String, Object?> _dailySnapshot(DateTime date) {
     final daily = const AstrologyEngine().buildPreviewContext(profile: profile, date: date);
+    final dayStart = DateTime(date.year, date.month, date.day);
+    final eventCard = DailyAstroEventsCard(date: date, contextData: daily);
+    final stationEvents = eventCard._stationEvents(dayStart, dayStart.add(const Duration(days: 1)), AstrologyDataSources.current);
+    final dailyEvents = eventCard._dailyEvents(dayStart, dayStart.add(const Duration(days: 1)), AstrologyDataSources.current);
     return {
       'date': '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
       'date_time_jst': _dateTimeJst(date),
@@ -12050,8 +12117,8 @@ class ExternalAstroDataExportCard extends StatelessWidget {
         ...daily.retrogradePlanets,
         ...DailyAstroEventsCard.verifiedRetrogradesAt(date),
       }.map((item) => item.label).toList(),
-      'station_events_jst': DailyAstroEventsCard(date: date, contextData: daily)
-          ._stationEvents(DateTime(date.year, date.month, date.day), DateTime(date.year, date.month, date.day + 1), AstrologyDataSources.current),
+      'station_events_jst': stationEvents,
+      if (dailyEvents.isNotEmpty) 'daily_events_jst': dailyEvents,
       'special_configurations_at_reference_time': _transitConfigurationSnapshot(daily),
     };
   }
@@ -16984,14 +17051,6 @@ class CreatorProfileCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 28),
-                Text(
-                  'アプリは無料で、すべての機能を利用できます。開発・端末検証・公開を続けるには、時間や費用がかかります。',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.72),
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 10),
                 const Wrap(
                   spacing: 10,
                   runSpacing: 10,
@@ -17006,21 +17065,7 @@ class CreatorProfileCard extends StatelessWidget {
                       label: 'Kindle作品一覧',
                       url: 'https://www.amazon.co.jp/stores/author/B0GJFN5HX8',
                     ),
-                    _CreatorLinkButton(
-                      icon: Icons.volunteer_activism_outlined,
-                      label: '開発を応援する（任意）',
-                      url: 'https://ofuse.me/pancyo',
-                    ),
                   ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '応援の有無・金額によって、アプリの機能や鑑定結果が変わることはありません。',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.56),
-                    fontSize: 12,
-                    height: 1.4,
-                  ),
                 ),
             ],
           );
