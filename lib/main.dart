@@ -9383,6 +9383,45 @@ Map<String, Object?> _transitConfigurationSnapshot(HoroscopeReadingContext conte
   };
 }
 
+/// トランジットのハウス番号は、現在地の瞬間図ではなく出生図のカスプを
+/// 基準にしている。外部AIや別サービスの「東京の瞬間図」と取り違えないよう、
+/// JSONには方式・基準・検算用カスプを必ず添える。
+Map<String, Object?> _houseCalculationSnapshot(HoroscopeReadingContext contextData) {
+  Map<String, Object?> cusp(int index, double longitude) {
+    final normalized = longitude % 360 < 0 ? longitude % 360 + 360 : longitude % 360;
+    final sign = ZodiacSign.values[(normalized / 30).floor()];
+    return {
+      'house': index + 1,
+      'sign': sign.label,
+      'degree': double.parse((normalized % 30).toStringAsFixed(4)),
+      'longitude': double.parse(normalized.toStringAsFixed(4)),
+    };
+  }
+
+  return {
+    'house_system': contextData.houseSystem.name,
+    'reference': 'natal_chart',
+    'reference_note': 'トランジット天体のhouseは、出生時刻・出生地から作成した出生図のハウスを基準に判定しています。現在地・東京などの瞬間図のハウスではありません。',
+    'natal_chart_basis': {
+      'birth_date': contextData.natal.profile.birthDate,
+      'birth_time': contextData.natal.profile.birthTime,
+      'birth_place': contextData.natal.profile.birthPlace,
+      'calculation_place': contextData.birthPlace.label,
+      'latitude': contextData.birthPlace.latitude,
+      'longitude': contextData.birthPlace.longitude,
+    },
+    'natal_house_cusps': List<Map<String, Object?>>.generate(
+      contextData.houseCusps.length,
+      (index) => cusp(index, contextData.houseCusps[index]),
+    ),
+  };
+}
+
+Map<String, Object?> _transitHouseReferenceSnapshot() => {
+      'reference': 'natal_chart',
+      'note': '各天体のhouseは出生図のハウス通過を表します。現在地の瞬間図のハウスではありません。方式・出生図カスプはトップレベルのhouse_calculationを参照してください。',
+    };
+
 class DailyAstroDataExportCard extends StatelessWidget {
   const DailyAstroDataExportCard({
     super.key,
@@ -9428,6 +9467,7 @@ class DailyAstroDataExportCard extends StatelessWidget {
         'concerns': details.concerns,
         'reading_style': details.readingStyle,
       },
+      'house_calculation': _houseCalculationSnapshot(contextData),
       'fortune_scores': {
         'overall': FortuneScoreCalculator.dailyOverall(contextData),
         'love': love,
@@ -9451,6 +9491,7 @@ class DailyAstroDataExportCard extends StatelessWidget {
       'transit_placements': contextData.transit.placements
           .map((item) => {'planet': item.planet.label, 'sign': item.sign.label, 'degree': item.degree, 'house': item.house})
           .toList(),
+      'transit_house_reference': _transitHouseReferenceSnapshot(),
       'void_moon': voidMoon == null ? null : {'start_jst': _jst(voidMoon.startTime), 'end_jst': _jst(voidMoon.endTime)},
       'lunar_phase': DailyAstroEventsCard(date: date, contextData: contextData)
           ._lunarPhaseSnapshot(DateTime(date.year, date.month, date.day, 12), AstrologyDataSources.current),
@@ -12050,6 +12091,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
     return {
       'date_time_jst': _dateTimeJst(context.transit.date),
       'placements': _placements(context),
+      'transit_house_reference': _transitHouseReferenceSnapshot(),
       'void_moon': context.transit.voidMoon == null
           ? null
           : {
@@ -12102,6 +12144,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
           .map((item) => item.sign.label)
           .join(),
       'transit_placements': _placements(daily),
+      'transit_house_reference': _transitHouseReferenceSnapshot(),
       'void_moon': daily.transit.voidMoon == null
           ? null
           : {
@@ -12356,6 +12399,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
           'concerns': details.concerns,
           'reading_style': details.readingStyle,
         },
+        'house_calculation': _houseCalculationSnapshot(contextData),
         'natal_placements': contextData.natal.placements.map((item) => {
               'planet': item.planet.label,
               'sign': item.sign.label,
@@ -18561,6 +18605,7 @@ class HoroscopeReadingContext {
     required this.ephemerisPrecisionNotice,
     required this.usesHighPrecisionAstroData,
     required this.houseSystem,
+    required this.houseCusps,
   });
 
   final NatalChart natal;
@@ -18579,6 +18624,7 @@ class HoroscopeReadingContext {
   final String ephemerisPrecisionNotice;
   final bool usesHighPrecisionAstroData;
   final HouseSystem houseSystem;
+  final List<double> houseCusps;
 
   Iterable<TransitAspect> aspectsFor(FortuneArea area) =>
       aspects.where((aspect) => aspect.area == area);
@@ -20078,6 +20124,7 @@ class AstrologyEngine {
       ephemerisPrecisionNotice: ephemeris.precisionNotice,
       usesHighPrecisionAstroData: ephemeris.usesHighPrecisionAstroData,
       houseSystem: houseFrame.system,
+      houseCusps: houseFrame.cusps,
     );
   }
 
