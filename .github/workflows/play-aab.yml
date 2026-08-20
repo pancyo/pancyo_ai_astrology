@@ -1,0 +1,66 @@
+name: Google Play用AABを作成
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-play-aab:
+    name: 署名付きRelease AABを作成
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ソースを取得
+        uses: actions/checkout@v4
+
+      - name: Javaを準備
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Flutterを準備
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: 依存関係を取得
+        run: flutter pub get
+
+      - name: Playアップロード鍵を準備
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/pancyo-upload.keystore"
+          printf '%s\n' \
+            "storePassword=$ANDROID_KEYSTORE_PASSWORD" \
+            "keyPassword=$ANDROID_KEY_PASSWORD" \
+            "keyAlias=$ANDROID_KEY_ALIAS" \
+            "storeFile=$RUNNER_TEMP/pancyo-upload.keystore" \
+            > android/key.properties
+
+      - name: Release AABを作成
+        run: flutter build appbundle --release
+
+      - name: AAB署名を検証
+        run: |
+          jarsigner -verify -certs -verbose build/app/outputs/bundle/release/app-release.aab
+          keytool -printcert -jarfile build/app/outputs/bundle/release/app-release.aab | tee "$RUNNER_TEMP/aab-certificate.txt"
+          ! grep -q 'CN=Android Debug' "$RUNNER_TEMP/aab-certificate.txt"
+
+      - name: Play提出用AABを保存
+        uses: actions/upload-artifact@v4
+        with:
+          name: pancyo-aiastrology-play-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14

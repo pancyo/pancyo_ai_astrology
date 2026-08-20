@@ -51,7 +51,7 @@ jobs:
           fi
 
       - name: Profile APKを作成
-        run: flutter build apk --profile --build-number=$((50 + GITHUB_RUN_NUMBER))
+        run: flutter build apk --profile
 
       - name: テスト版リリースを作成
         env:

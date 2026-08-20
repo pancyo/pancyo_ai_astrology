@@ -4700,6 +4700,22 @@ class _TodayFortuneGridState extends State<TodayFortuneGrid> {
   }
 }
 
+class AnnualLifeEventBoost {
+  const AnnualLifeEventBoost({
+    required this.value,
+    required this.detail,
+    required this.formula,
+    required this.areaEffects,
+  });
+
+  final double value;
+  final String detail;
+  final String formula;
+  final Map<FortuneArea, double> areaEffects;
+
+  double effectFor(FortuneArea area) => areaEffects[area] ?? 0;
+}
+
 class FortuneScoreCalculator {
   static int standardBase(FortuneArea area) => switch (area) {
         FortuneArea.love => 70,
@@ -4861,10 +4877,10 @@ class FortuneScoreCalculator {
 
   /// 年運では、24時点の平均で埋もれやすい「節目」だけを最強1件に絞って示す。
   /// 日・週・月には使わず、通常のリターン・アスペクト点とは別の年専用補正。
-  static ({double value, String detail, String formula})? annualLifeEventBoost(
+  static AnnualLifeEventBoost? annualLifeEventBoost(
     Iterable<HoroscopeReadingContext> contexts,
   ) {
-    final candidates = <({double value, String detail, String formula})>[];
+    final candidates = <({double value, String detail, String formula, Map<FortuneArea, double> areaEffects})>[];
     String dateLabel(DateTime date) => '${date.month}/${date.day}';
     for (final context in contexts) {
       for (final event in context.returns) {
@@ -4896,11 +4912,14 @@ class FortuneScoreCalculator {
             value: value,
             detail: '${dateLabel(context.transit.date)}頃の${event.planet.label}リターン（第${event.natalHouse}ハウス、オーブ${event.orb.toStringAsFixed(1)}°）',
             formula: '年専用: ${event.planet.label}の節目上限${maximum.toStringAsFixed(1)} × 近さ${closeness.toStringAsFixed(2)} × 位相${phaseWeight.toStringAsFixed(2)}（最強1件、上限+3.5）',
+            areaEffects: _annualReturnAreaEffects(event, value),
           ));
         }
       }
-      for (final aspect in context.aspects) {
-        if ((aspect.natalPlanet != AstroPlanet.ascendant && aspect.natalPlanet != AstroPlanet.midheaven) || aspect.orb > 1.5) continue;
+      // 表示用の上位8件ではなく全アスペクトを対象にする。これで、強いMC/ASC
+      // だけでなく太陽・月・各天体への長期トランジットも年運から漏れない。
+      for (final aspect in context.fullAspects) {
+        if (aspect.orb > 1.5) continue;
         final planetWeight = switch (aspect.transitPlanet) {
           AstroPlanet.jupiter => 2.4,
           AstroPlanet.saturn => 1.9,
@@ -4919,7 +4938,8 @@ class FortuneScoreCalculator {
           candidates.add((
             value: value,
             detail: '${dateLabel(context.transit.date)}頃の${aspect.transitPlanet.label}${aspect.type.label}出生図の${aspect.natalPlanet.label}（オーブ${aspect.orb.toStringAsFixed(1)}°）',
-            formula: '年専用: 角度上限${planetWeight.toStringAsFixed(1)} × 調和角係数${aspectWeight.toStringAsFixed(2)} × 近さ${closeness.toStringAsFixed(2)}（最強1件、上限+3.5）',
+            formula: '年専用: ${aspect.natalPlanet.label}への長期トランジット上限${planetWeight.toStringAsFixed(1)} × 調和角係数${aspectWeight.toStringAsFixed(2)} × 近さ${closeness.toStringAsFixed(2)}（最強1件、分野別に配分）',
+            areaEffects: _annualAspectAreaEffects(aspect, value),
           ));
         }
       }
@@ -4928,6 +4948,8 @@ class FortuneScoreCalculator {
           'グランドセクスタイル' => 1.4,
           'ミスティックレクタングル（ダイヤモンド）' => 0.9,
           'クレイドル（ゆりかご）' => 0.7,
+          'グランドトライン' => 0.7,
+          'カイト' => 0.8,
           _ => 0.0,
         };
         if (value > 0) {
@@ -4935,6 +4957,7 @@ class FortuneScoreCalculator {
             value: value,
             detail: '${dateLabel(context.transit.date)}頃の$label',
             formula: '年専用: 良いレア配置の節目補正+${value.toStringAsFixed(1)}（最強1件、上限+3.5）',
+            areaEffects: _annualRarePatternAreaEffects(label, value),
           ));
         }
       }
@@ -4942,8 +4965,112 @@ class FortuneScoreCalculator {
     if (candidates.isEmpty) return null;
     candidates.sort((left, right) => right.value.compareTo(left.value));
     final best = candidates.first;
-    return (value: best.value.clamp(0.0, 3.5).toDouble(), detail: best.detail, formula: best.formula);
+    final normalizedEffects = <FortuneArea, double>{
+      for (final area in const [
+        FortuneArea.love,
+        FortuneArea.work,
+        FortuneArea.money,
+        FortuneArea.mental,
+      ])
+        area: best.areaEffects[area]?.clamp(0.0, 3.5).toDouble() ?? 0,
+    };
+    final overallEffect = normalizedEffects.values.fold<double>(0, (sum, value) => sum + value) /
+        normalizedEffects.length;
+    return AnnualLifeEventBoost(
+      value: overallEffect.clamp(0.0, 3.5).toDouble(),
+      detail: best.detail,
+      formula: best.formula,
+      areaEffects: normalizedEffects,
+    );
   }
+
+  static Map<FortuneArea, double> _annualReturnAreaEffects(
+    PlanetReturnEvent event,
+    double value,
+  ) => _scaledAnnualEffects(
+        switch (event.planet) {
+          AstroPlanet.sun => const {FortuneArea.work: 0.55, FortuneArea.mental: 0.45},
+          AstroPlanet.moon => const {FortuneArea.love: 0.35, FortuneArea.mental: 1.0},
+          AstroPlanet.mercury => const {FortuneArea.work: 1.0, FortuneArea.money: 0.25},
+          AstroPlanet.venus => const {FortuneArea.love: 1.0, FortuneArea.money: 0.45},
+          AstroPlanet.mars => const {FortuneArea.love: 0.45, FortuneArea.work: 0.8, FortuneArea.mental: 0.2},
+          AstroPlanet.jupiter => const {FortuneArea.work: 0.45, FortuneArea.money: 1.0, FortuneArea.mental: 0.15},
+          AstroPlanet.saturn => const {FortuneArea.work: 1.0, FortuneArea.mental: 0.5},
+          AstroPlanet.uranus => const {FortuneArea.work: 0.6, FortuneArea.mental: 0.65},
+          AstroPlanet.neptune => const {FortuneArea.love: 0.35, FortuneArea.mental: 0.85},
+          AstroPlanet.pluto => const {FortuneArea.work: 0.65, FortuneArea.money: 0.2, FortuneArea.mental: 0.8},
+          AstroPlanet.ascendant || AstroPlanet.midheaven => const {},
+        },
+        value,
+      );
+
+  static Map<FortuneArea, double> _annualAspectAreaEffects(
+    TransitAspect aspect,
+    double value,
+  ) => _scaledAnnualEffects(
+        switch (aspect.natalPlanet) {
+          AstroPlanet.ascendant => const {FortuneArea.love: 0.25, FortuneArea.work: 0.15, FortuneArea.mental: 1.0},
+          AstroPlanet.midheaven => const {FortuneArea.work: 1.25, FortuneArea.money: 0.3},
+          AstroPlanet.sun => const {FortuneArea.work: 0.55, FortuneArea.mental: 0.55},
+          AstroPlanet.moon => const {FortuneArea.love: 0.4, FortuneArea.mental: 1.0},
+          AstroPlanet.mercury => const {FortuneArea.work: 1.0, FortuneArea.money: 0.35},
+          AstroPlanet.venus => const {FortuneArea.love: 1.0, FortuneArea.money: 0.55},
+          AstroPlanet.mars => const {FortuneArea.love: 0.35, FortuneArea.work: 1.0, FortuneArea.mental: 0.3},
+          AstroPlanet.jupiter => const {FortuneArea.work: 0.45, FortuneArea.money: 1.0, FortuneArea.mental: 0.15},
+          AstroPlanet.saturn => const {FortuneArea.work: 0.85, FortuneArea.mental: 0.6},
+          AstroPlanet.uranus => const {FortuneArea.work: 0.55, FortuneArea.mental: 0.7},
+          AstroPlanet.neptune => const {FortuneArea.love: 0.35, FortuneArea.mental: 0.9},
+          AstroPlanet.pluto => const {FortuneArea.work: 0.55, FortuneArea.money: 0.2, FortuneArea.mental: 0.85},
+        },
+        value,
+      );
+
+  static Map<FortuneArea, double> _annualRarePatternAreaEffects(
+    String label,
+    double value,
+  ) => _scaledAnnualEffects(
+        switch (label) {
+          'グランドセクスタイル' => const {
+              FortuneArea.love: 0.8,
+              FortuneArea.work: 1.0,
+              FortuneArea.money: 0.9,
+              FortuneArea.mental: 0.8,
+            },
+          'ミスティックレクタングル（ダイヤモンド）' => const {
+              FortuneArea.love: 0.55,
+              FortuneArea.work: 0.75,
+              FortuneArea.money: 0.55,
+              FortuneArea.mental: 1.0,
+            },
+          'クレイドル（ゆりかご）' => const {
+              FortuneArea.love: 0.65,
+              FortuneArea.work: 0.35,
+              FortuneArea.money: 0.35,
+              FortuneArea.mental: 1.0,
+            },
+          'グランドトライン' => const {
+              FortuneArea.love: 0.55,
+              FortuneArea.work: 0.7,
+              FortuneArea.money: 0.55,
+              FortuneArea.mental: 0.7,
+            },
+          'カイト' => const {
+              FortuneArea.love: 0.5,
+              FortuneArea.work: 1.0,
+              FortuneArea.money: 0.6,
+              FortuneArea.mental: 0.6,
+            },
+          _ => const {},
+        },
+        value,
+      );
+
+  static Map<FortuneArea, double> _scaledAnnualEffects(
+    Map<FortuneArea, double> weights,
+    double value,
+  ) => {
+        for (final entry in weights.entries) entry.key: value * entry.value,
+      };
 
   static FortuneScoreBreakdown _scoreBreakdown({
     required HoroscopeReadingContext contextData,
@@ -9383,6 +9510,45 @@ Map<String, Object?> _transitConfigurationSnapshot(HoroscopeReadingContext conte
   };
 }
 
+/// トランジットのハウス番号は、現在地の瞬間図ではなく出生図のカスプを
+/// 基準にしている。外部AIや別サービスの「東京の瞬間図」と取り違えないよう、
+/// JSONには方式・基準・検算用カスプを必ず添える。
+Map<String, Object?> _houseCalculationSnapshot(HoroscopeReadingContext contextData) {
+  Map<String, Object?> cusp(int index, double longitude) {
+    final normalized = longitude % 360 < 0 ? longitude % 360 + 360 : longitude % 360;
+    final sign = ZodiacSign.values[(normalized / 30).floor()];
+    return {
+      'house': index + 1,
+      'sign': sign.label,
+      'degree': double.parse((normalized % 30).toStringAsFixed(4)),
+      'longitude': double.parse(normalized.toStringAsFixed(4)),
+    };
+  }
+
+  return {
+    'house_system': contextData.houseSystem.name,
+    'reference': 'natal_chart',
+    'reference_note': 'トランジット天体のhouseは、出生時刻・出生地から作成した出生図のハウスを基準に判定しています。現在地・東京などの瞬間図のハウスではありません。',
+    'natal_chart_basis': {
+      'birth_date': contextData.natal.profile.birthDate,
+      'birth_time': contextData.natal.profile.birthTime,
+      'birth_place': contextData.natal.profile.birthPlace,
+      'calculation_place': contextData.birthPlace.label,
+      'latitude': contextData.birthPlace.latitude,
+      'longitude': contextData.birthPlace.longitude,
+    },
+    'natal_house_cusps': List<Map<String, Object?>>.generate(
+      contextData.houseCusps.length,
+      (index) => cusp(index, contextData.houseCusps[index]),
+    ),
+  };
+}
+
+Map<String, Object?> _transitHouseReferenceSnapshot() => {
+      'reference': 'natal_chart',
+      'note': '各天体のhouseは出生図のハウス通過を表します。現在地の瞬間図のハウスではありません。方式・出生図カスプはトップレベルのhouse_calculationを参照してください。',
+    };
+
 class DailyAstroDataExportCard extends StatelessWidget {
   const DailyAstroDataExportCard({
     super.key,
@@ -9428,6 +9594,7 @@ class DailyAstroDataExportCard extends StatelessWidget {
         'concerns': details.concerns,
         'reading_style': details.readingStyle,
       },
+      'house_calculation': _houseCalculationSnapshot(contextData),
       'fortune_scores': {
         'overall': FortuneScoreCalculator.dailyOverall(contextData),
         'love': love,
@@ -9451,6 +9618,7 @@ class DailyAstroDataExportCard extends StatelessWidget {
       'transit_placements': contextData.transit.placements
           .map((item) => {'planet': item.planet.label, 'sign': item.sign.label, 'degree': item.degree, 'house': item.house})
           .toList(),
+      'transit_house_reference': _transitHouseReferenceSnapshot(),
       'void_moon': voidMoon == null ? null : {'start_jst': _jst(voidMoon.startTime), 'end_jst': _jst(voidMoon.endTime)},
       'lunar_phase': DailyAstroEventsCard(date: date, contextData: contextData)
           ._lunarPhaseSnapshot(DateTime(date.year, date.month, date.day, 12), AstrologyDataSources.current),
@@ -11276,10 +11444,10 @@ class _LongRangeReadingState extends State<LongRangeReading> {
       return average;
     }
 
-    final loveScore = yearlyAreaScore(FortuneArea.love, FortuneScoreCalculator.standardBase(FortuneArea.love));
-    final workScore = yearlyAreaScore(FortuneArea.work, FortuneScoreCalculator.standardBase(FortuneArea.work));
-    final moneyScore = yearlyAreaScore(FortuneArea.money, FortuneScoreCalculator.standardBase(FortuneArea.money));
-    final mentalScore = yearlyAreaScore(FortuneArea.mental, FortuneScoreCalculator.standardBase(FortuneArea.mental));
+    final baseLoveScore = yearlyAreaScore(FortuneArea.love, FortuneScoreCalculator.standardBase(FortuneArea.love));
+    final baseWorkScore = yearlyAreaScore(FortuneArea.work, FortuneScoreCalculator.standardBase(FortuneArea.work));
+    final baseMoneyScore = yearlyAreaScore(FortuneArea.money, FortuneScoreCalculator.standardBase(FortuneArea.money));
+    final baseMentalScore = yearlyAreaScore(FortuneArea.mental, FortuneScoreCalculator.standardBase(FortuneArea.mental));
     final annualOverallBaseScores = annualContexts.map((context) {
       return FortuneScoreCalculator.overallFromAreas([
         _periodScore(FortuneArea.love, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.love)),
@@ -11299,20 +11467,20 @@ class _LongRangeReadingState extends State<LongRangeReading> {
     final annualReturnLabels = annualReturnBonuses.map((bonus) => bonus.planet.label).toSet();
     final annualReturnExample = annualReturnBonuses.isEmpty ? null : annualReturnBonuses.first;
     final annualLifeEventBoost = FortuneScoreCalculator.annualLifeEventBoost(annualContexts);
-    final annualOverallScores = List<int>.generate(annualContexts.length, (index) {
-      final context = annualContexts[index];
-      return FortuneScoreCalculator.overallWithReturnBonus([
-        _periodScore(FortuneArea.love, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.love)),
-        _periodScore(FortuneArea.work, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.work)),
-        _periodScore(FortuneArea.money, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.money)),
-        _periodScore(FortuneArea.mental, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.mental)),
-      ], context);
-    });
-    final annualAverageOverallScore = FortuneScoreCalculator.overallFromAreas(annualOverallScores);
-    final overallScore = (annualAverageOverallScore + (annualLifeEventBoost?.value ?? 0))
-        .round()
-        .clamp(50, 99)
-        .toInt();
+    int withAnnualLifeEvent(int score, FortuneArea area) {
+      return (score + (annualLifeEventBoost?.effectFor(area) ?? 0)).round().clamp(50, 99).toInt();
+    }
+
+    final loveScore = withAnnualLifeEvent(baseLoveScore, FortuneArea.love);
+    final workScore = withAnnualLifeEvent(baseWorkScore, FortuneArea.work);
+    final moneyScore = withAnnualLifeEvent(baseMoneyScore, FortuneArea.money);
+    final mentalScore = withAnnualLifeEvent(baseMentalScore, FortuneArea.mental);
+    final overallScore = FortuneScoreCalculator.overallFromAreas([
+      loveScore,
+      workScore,
+      moneyScore,
+      mentalScore,
+    ]);
 
     String yearDetailedText(String title, FortuneArea area, int score) {
       final returns = annualContexts
@@ -11334,10 +11502,13 @@ class _LongRangeReadingState extends State<LongRangeReading> {
           : aspects.isNotEmpty
               ? '${aspects.first.transitPlanet.label}と出生図の${aspects.first.natalPlanet.label}の${aspects.first.type.label}が年間の主な変動要因です。'
               : '強い突出は少なめで、季節ごとの見直しが成果につながります。';
-      final annualPeakHint = area == FortuneArea.overall && annualLifeEventBoost != null
-          ? '${annualLifeEventBoost.detail}が、この年の流れが最も強まりやすい山です。'
+      final annualAreaEffect = area == FortuneArea.overall
+          ? annualLifeEventBoost?.value ?? 0
+          : annualLifeEventBoost?.effectFor(area) ?? 0;
+      final annualPeakHint = annualLifeEventBoost != null && annualAreaEffect > 0
+          ? '${annualLifeEventBoost.detail}が、この年の$titleへ+${annualAreaEffect.toStringAsFixed(1)}点として反映される山です。'
           : '';
-      final narrativeSignal = area == FortuneArea.overall && annualLifeEventBoost != null ? '' : signal;
+      final narrativeSignal = annualAreaEffect > 0 ? '' : signal;
       final action = switch (title) {
         '総合運' => '季節ごとに優先テーマを定め、負担と成果を見直しましょう。',
         '恋愛運' => '関係を進める時期と距離を整える時期を分け、相手の反応を確かめましょう。',
@@ -11366,6 +11537,9 @@ class _LongRangeReadingState extends State<LongRangeReading> {
           .expand((item) => area == FortuneArea.overall ? item.aspects : item.aspectsFor(area))
           .toList()
         ..sort((left, right) => left.orb.compareTo(right.orb));
+      final annualAreaEffect = area == FortuneArea.overall
+          ? annualLifeEventBoost?.value ?? 0
+          : annualLifeEventBoost?.effectFor(area) ?? 0;
       final dignityDetails = <String>[];
       String? dignityFormula;
       for (final context in annualContexts) {
@@ -11385,11 +11559,11 @@ class _LongRangeReadingState extends State<LongRangeReading> {
           '総合リターン特例の24時点平均: +${annualReturnBonus.toStringAsFixed(1)}点（${annualReturnLabels.join('・')}）',
         if (area == FortuneArea.overall && annualReturnExample != null)
           '特例の式（例）: ${annualReturnExample.planet.label} ${annualReturnExample.detail} / ${annualReturnExample.formula}',
-        if (area == FortuneArea.overall && annualLifeEventBoost != null)
-          '年専用の人生イベント補正: +${annualLifeEventBoost.value.toStringAsFixed(1)}点（${annualLifeEventBoost.detail}） / ${annualLifeEventBoost.formula}',
+        if (annualLifeEventBoost != null && annualAreaEffect > 0)
+          '年専用の人生イベント補正: +${annualAreaEffect.toStringAsFixed(1)}点（${annualLifeEventBoost.detail}） / ${annualLifeEventBoost.formula}',
         if (dignityDetails.isNotEmpty)
           '天体のサイン品位: ${dignityDetails.take(3).join(' / ')}${dignityDetails.length > 3 ? ' ほか${dignityDetails.length - 3}件' : ''} / $dignityFormula',
-        if (area == FortuneArea.overall) '最終: 特例反映後の24時点平均$annualAverageOverallScore点${annualLifeEventBoost == null ? '' : ' + 年専用補正${annualLifeEventBoost.value.toStringAsFixed(1)}点'} → $score点（50〜99点）',
+        if (area == FortuneArea.overall) '最終: 特例反映後の4分野（恋愛$loveScore・仕事$workScore・金運$moneyScore・健康/メンタル$mentalScore）の平均 → $score点（50〜99点）',
         '$targetYear年の24時点を集計: $score点',
         if (aspects.isNotEmpty) '主要: ${aspects.first.label}',
         if (returns.isNotEmpty) '実際のリターン: ${returns.join('・')}',
@@ -12050,6 +12224,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
     return {
       'date_time_jst': _dateTimeJst(context.transit.date),
       'placements': _placements(context),
+      'transit_house_reference': _transitHouseReferenceSnapshot(),
       'void_moon': context.transit.voidMoon == null
           ? null
           : {
@@ -12102,6 +12277,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
           .map((item) => item.sign.label)
           .join(),
       'transit_placements': _placements(daily),
+      'transit_house_reference': _transitHouseReferenceSnapshot(),
       'void_moon': daily.transit.voidMoon == null
           ? null
           : {
@@ -12175,7 +12351,13 @@ class ExternalAstroDataExportCard extends StatelessWidget {
       'value': double.parse(boost.value.toStringAsFixed(2)),
       'detail': boost.detail,
       'formula': boost.formula,
-      'rule': '年運のみ。木星・土星・外惑星などのリターン、ASC/MCへのタイトな調和アスペクト、良いレア配置から最強1件だけを選び、最大+3.5点。',
+      'area_effects': {
+        'love': double.parse(boost.effectFor(FortuneArea.love).toStringAsFixed(2)),
+        'work': double.parse(boost.effectFor(FortuneArea.work).toStringAsFixed(2)),
+        'money': double.parse(boost.effectFor(FortuneArea.money).toStringAsFixed(2)),
+        'mental': double.parse(boost.effectFor(FortuneArea.mental).toStringAsFixed(2)),
+      },
+      'rule': '年運のみ。木星・土星・外惑星などのリターン、出生図の全天体・ASC・MCへのタイトな調和アスペクト、良いレア配置から最強1件だけを選び、関係する分野へ配分します。総合運は4分野への配分の平均で、各分野は最大+3.5点です。',
     };
   }
 
@@ -12308,19 +12490,21 @@ class ExternalAstroDataExportCard extends StatelessWidget {
     final work = annualArea(FortuneArea.work);
     final money = annualArea(FortuneArea.money);
     final mental = annualArea(FortuneArea.mental);
-    final overallSamples = contexts.map((context) => FortuneScoreCalculator.overallWithReturnBonus([
-          FortuneScoreCalculator.periodArea(FortuneArea.love, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.love)),
-          FortuneScoreCalculator.periodArea(FortuneArea.work, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.work)),
-          FortuneScoreCalculator.periodArea(FortuneArea.money, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.money)),
-          FortuneScoreCalculator.periodArea(FortuneArea.mental, context, context.transit.date, FortuneScoreCalculator.standardBase(FortuneArea.mental)),
-        ], context)).toList();
     final annualBoost = FortuneScoreCalculator.annualLifeEventBoost(contexts);
+    int withAnnualLifeEvent(int score, FortuneArea area) {
+      return (score + (annualBoost?.effectFor(area) ?? 0)).round().clamp(50, 99).toInt();
+    }
     return entries(
-      overall: (FortuneScoreCalculator.overallFromAreas(overallSamples) + (annualBoost?.value ?? 0)).round().clamp(50, 99).toInt(),
-      love: love,
-      work: work,
-      money: money,
-      mental: mental,
+      overall: FortuneScoreCalculator.overallFromAreas([
+        withAnnualLifeEvent(love, FortuneArea.love),
+        withAnnualLifeEvent(work, FortuneArea.work),
+        withAnnualLifeEvent(money, FortuneArea.money),
+        withAnnualLifeEvent(mental, FortuneArea.mental),
+      ]),
+      love: withAnnualLifeEvent(love, FortuneArea.love),
+      work: withAnnualLifeEvent(work, FortuneArea.work),
+      money: withAnnualLifeEvent(money, FortuneArea.money),
+      mental: withAnnualLifeEvent(mental, FortuneArea.mental),
       overallEvidence: annualBoost == null ? null : '年専用の人生イベント補正: +${annualBoost.value.toStringAsFixed(1)}点（${annualBoost.detail}）',
     );
   }
@@ -12356,6 +12540,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
           'concerns': details.concerns,
           'reading_style': details.readingStyle,
         },
+        'house_calculation': _houseCalculationSnapshot(contextData),
         'natal_placements': contextData.natal.placements.map((item) => {
               'planet': item.planet.label,
               'sign': item.sign.label,
@@ -16133,6 +16318,13 @@ class _ProfileFormState extends State<ProfileForm> {
       '鳥取県鳥取市', '島根県松江市', '島根県出雲市', '岡山県岡山市',
       '岡山県倉敷市', '広島県広島市', '広島県福山市', '山口県山口市', '山口県下関市',
     ],
+    '四国': [
+      '徳島県徳島市', '香川県高松市', '愛媛県松山市', '高知県高知市',
+    ],
+    '九州・沖縄': [
+      '福岡県福岡市', '佐賀県佐賀市', '長崎県長崎市', '熊本県熊本市',
+      '大分県大分市', '宮崎県宮崎市', '鹿児島県鹿児島市', '沖縄県那覇市',
+    ],
   };
 
   @override
@@ -17065,6 +17257,11 @@ class CreatorProfileCard extends StatelessWidget {
                       label: 'Kindle作品一覧',
                       url: 'https://www.amazon.co.jp/stores/author/B0GJFN5HX8',
                     ),
+                    _CreatorLinkButton(
+                      icon: Icons.privacy_tip_outlined,
+                      label: 'プライバシーポリシー',
+                      url: 'https://pancyo-astrology.netlify.app/privacy.html',
+                    ),
                   ],
                 ),
             ],
@@ -17225,7 +17422,8 @@ class BirthPlaceQuickSelect extends StatelessWidget {
     if (place == '東京都') return '東京';
     return place
         .replaceFirst(RegExp(r'^北海道'), '')
-        .replaceFirst(RegExp(r'^.+?[都道府県]'), '')
+        // 「京都府京都市」は先頭の「京都」の「都」で切らない。
+        .replaceFirst(RegExp(r'^(?:東京都|京都府|大阪府|.{2,3}県)'), '')
         .replaceFirst(RegExp(r'市$'), '');
   }
 }
@@ -18556,6 +18754,7 @@ class HoroscopeReadingContext {
     required this.ephemerisPrecisionNotice,
     required this.usesHighPrecisionAstroData,
     required this.houseSystem,
+    required this.houseCusps,
   });
 
   final NatalChart natal;
@@ -18574,6 +18773,7 @@ class HoroscopeReadingContext {
   final String ephemerisPrecisionNotice;
   final bool usesHighPrecisionAstroData;
   final HouseSystem houseSystem;
+  final List<double> houseCusps;
 
   Iterable<TransitAspect> aspectsFor(FortuneArea area) =>
       aspects.where((aspect) => aspect.area == area);
@@ -20073,6 +20273,7 @@ class AstrologyEngine {
       ephemerisPrecisionNotice: ephemeris.precisionNotice,
       usesHighPrecisionAstroData: ephemeris.usesHighPrecisionAstroData,
       houseSystem: houseFrame.system,
+      houseCusps: houseFrame.cusps,
     );
   }
 
