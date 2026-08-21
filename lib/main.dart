@@ -17461,7 +17461,7 @@ class BirthPlaceQuickSelect extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
                   child: Text(
                     '地域を選んでから都市を選びます。選んだ市名は、ハウス計算用の内部座標へ自動変換されます。',
-                    style: TextStyle(color: Colors.black.withValues(alpha: 0.62), height: 1.4),
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.72), height: 1.4, fontWeight: FontWeight.w600),
                   ),
                 ),
                 TabBar(
