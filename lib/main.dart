@@ -17373,45 +17373,73 @@ class BirthPlaceQuickSelect extends StatelessWidget {
   }
 
   Future<void> _showRegionalPicker(BuildContext context) async {
+    final regions = regionalSuggestions.entries.toList(growable: false);
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: SizedBox(
-          height: MediaQuery.sizeOf(sheetContext).height * 0.76,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
-            children: [
-              const Text('出生地の主な都市', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 6),
-              Text(
-                '選んだ市名は、ハウス計算用の内部座標へ自動変換されます。',
-                style: TextStyle(color: Colors.black.withValues(alpha: 0.62), height: 1.4),
-              ),
-              const SizedBox(height: 16),
-              ...regionalSuggestions.entries.expand(
-                (entry) => [
-                  Text(entry.key, style: const TextStyle(fontWeight: FontWeight.w900)),
-                  const SizedBox(height: 7),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: entry.value
-                        .map(
-                          (place) => ActionChip(
-                            label: Text(_shortLabel(place)),
-                            onPressed: () {
-                              Navigator.pop(sheetContext);
-                              onSelected(place);
-                            },
-                          ),
-                        )
-                        .toList(),
+      builder: (sheetContext) => DefaultTabController(
+        length: regions.length,
+        child: SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(sheetContext).height * 0.76,
+            child: Column(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(18, 18, 18, 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '出生地の主な都市',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                    ),
                   ),
-                  const SizedBox(height: 18),
-                ],
-              ),
-            ],
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 10),
+                  child: Text(
+                    '地域を選んでから都市を選びます。選んだ市名は、ハウス計算用の内部座標へ自動変換されます。',
+                    style: TextStyle(color: Colors.black.withValues(alpha: 0.62), height: 1.4),
+                  ),
+                ),
+                TabBar(
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  tabs: [for (final entry in regions) Tab(text: entry.key)],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      for (final entry in regions)
+                        ListView(
+                          padding: const EdgeInsets.fromLTRB(18, 18, 18, 28),
+                          children: [
+                            Text(
+                              '${entry.key}の主な都市',
+                              style: const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: entry.value
+                                  .map(
+                                    (place) => ActionChip(
+                                      label: Text(_shortLabel(place)),
+                                      onPressed: () {
+                                        Navigator.pop(sheetContext);
+                                        onSelected(place);
+                                      },
+                                    ),
+                                  )
+                                  .toList(),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
