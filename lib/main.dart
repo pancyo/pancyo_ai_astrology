@@ -17404,6 +17404,12 @@ class BirthPlaceQuickSelect extends StatelessWidget {
                 TabBar(
                   isScrollable: true,
                   tabAlignment: TabAlignment.start,
+                  labelColor: Colors.white,
+                  unselectedLabelColor: Colors.white.withValues(alpha: 0.76),
+                  labelStyle: const TextStyle(fontWeight: FontWeight.w900),
+                  unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700),
+                  indicatorColor: const Color(0xFF77D8FF),
+                  dividerColor: Colors.transparent,
                   tabs: [for (final entry in regions) Tab(text: entry.key)],
                 ),
                 Expanded(
