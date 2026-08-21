@@ -12364,6 +12364,51 @@ class ExternalAstroDataExportCard extends StatelessWidget {
   /// プロフィール画面からの出力には画面カードを渡さないため、ここで同じ集計値を
   /// 作る。日別・月別の明細だけでなく、先頭の期間スコアも空にしない。
   List<Map<String, Object?>> _periodScores() {
+    // 画面カードをそのままJSON化する経路でも、年専用補正の分野別根拠を
+    // 落とさない。外部AIが「なぜ仕事だけ高いか」を読み取れるようにする。
+    AnnualLifeEventBoost? annualLifeEventBoostForOutput;
+    if (mode == LongRangeMode.year) {
+      final annualContextsForOutput = <HoroscopeReadingContext>[
+        for (var monthIndex = 1; monthIndex <= 12; monthIndex++)
+          const AstrologyEngine().buildPreviewContext(
+            profile: profile,
+            date: DateTime(year, monthIndex, 1, 12),
+          ),
+        for (var monthIndex = 1; monthIndex <= 12; monthIndex++)
+          const AstrologyEngine().buildPreviewContext(
+            profile: profile,
+            date: DateTime(year, monthIndex, 15, 12),
+          ),
+      ];
+      annualLifeEventBoostForOutput =
+          FortuneScoreCalculator.annualLifeEventBoost(annualContextsForOutput);
+    }
+
+    String? annualLifeEventEvidenceForTitle(String title) {
+      final boost = annualLifeEventBoostForOutput;
+      if (boost == null) return null;
+      final area = switch (title) {
+        '総合運' => FortuneArea.overall,
+        '恋愛運' => FortuneArea.love,
+        '仕事運' => FortuneArea.work,
+        '金運' => FortuneArea.money,
+        '健康・メンタル運' => FortuneArea.mental,
+        _ => null,
+      };
+      if (area == null) return null;
+      final effect = area == FortuneArea.overall ? boost.value : boost.effectFor(area);
+      if (effect <= 0) return null;
+      return '年専用の人生イベント補正: +${effect.toStringAsFixed(2)}点（${boost.detail}） / ${boost.formula}';
+    }
+
+    List<String> evidenceWithAnnualLifeEvent(List<String> evidence, String title) {
+      final annualEvidence = annualLifeEventEvidenceForTitle(title);
+      if (annualEvidence == null || evidence.any((item) => item.startsWith('年専用の人生イベント補正:'))) {
+        return evidence;
+      }
+      return [...evidence, annualEvidence];
+    }
+
     if (cards.isNotEmpty) {
       return cards.map((item) => {
             'area': item.title,
@@ -12373,7 +12418,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
             'transit_house': item.transitHouse,
             'natal_house': item.natalHouse,
             'aspect_basis': '代表日（${_dateTimeJst(contextData.transit.date)}）: ${item.aspectBasis.replaceFirst('現在の', '')}',
-            'evidence': item.evidence,
+            'evidence': evidenceWithAnnualLifeEvent(item.evidence, item.title),
             'score_aggregation': _scoreAggregation,
             'representative_transit_scope': 'sign・transit_house・natal_house・aspect_basisは期間開始日12:00 JSTの代表配置',
             'basis_note': 'scoreは${_scoreAggregation}です。日別の配置と点数はdaily_scores、年間の月別データはannual_monthsを参照してください。',
@@ -12390,15 +12435,16 @@ class ExternalAstroDataExportCard extends StatelessWidget {
       required int money,
       required int mental,
       String? overallEvidence,
+      Map<String, List<String>> areaEvidence = const {},
     }) => [
       _periodScoreEntry(area: '総合運', score: overall, evidence: [
         '総合運: 4分野平均を${_scoreAggregation}で集計',
         if (overallEvidence != null) overallEvidence,
       ]),
-      _periodScoreEntry(area: '恋愛運', score: love),
-      _periodScoreEntry(area: '仕事運', score: work),
-      _periodScoreEntry(area: '金運', score: money),
-      _periodScoreEntry(area: '健康・メンタル運', score: mental),
+      _periodScoreEntry(area: '恋愛運', score: love, evidence: areaEvidence['恋愛運'] ?? const []),
+      _periodScoreEntry(area: '仕事運', score: work, evidence: areaEvidence['仕事運'] ?? const []),
+      _periodScoreEntry(area: '金運', score: money, evidence: areaEvidence['金運'] ?? const []),
+      _periodScoreEntry(area: '健康・メンタル運', score: mental, evidence: areaEvidence['健康・メンタル運'] ?? const []),
     ];
 
     if (mode == LongRangeMode.week) {
@@ -12491,6 +12537,22 @@ class ExternalAstroDataExportCard extends StatelessWidget {
     final money = annualArea(FortuneArea.money);
     final mental = annualArea(FortuneArea.mental);
     final annualBoost = FortuneScoreCalculator.annualLifeEventBoost(contexts);
+    final annualAreaEvidence = <String, List<String>>{};
+    if (annualBoost != null) {
+      for (final entry in const [
+        ('恋愛運', FortuneArea.love),
+        ('仕事運', FortuneArea.work),
+        ('金運', FortuneArea.money),
+        ('健康・メンタル運', FortuneArea.mental),
+      ]) {
+        final effect = annualBoost.effectFor(entry.$2);
+        if (effect > 0) {
+          annualAreaEvidence[entry.$1] = [
+            '年専用の人生イベント補正: +${effect.toStringAsFixed(2)}点（${annualBoost.detail}） / ${annualBoost.formula}',
+          ];
+        }
+      }
+    }
     int withAnnualLifeEvent(int score, FortuneArea area) {
       return (score + (annualBoost?.effectFor(area) ?? 0)).round().clamp(50, 99).toInt();
     }
@@ -12506,6 +12568,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
       money: withAnnualLifeEvent(money, FortuneArea.money),
       mental: withAnnualLifeEvent(mental, FortuneArea.mental),
       overallEvidence: annualBoost == null ? null : '年専用の人生イベント補正: +${annualBoost.value.toStringAsFixed(1)}点（${annualBoost.detail}）',
+      areaEvidence: annualAreaEvidence,
     );
   }
 
@@ -17410,7 +17473,18 @@ class BirthPlaceQuickSelect extends StatelessWidget {
                   unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700),
                   indicatorColor: const Color(0xFF77D8FF),
                   dividerColor: Colors.transparent,
-                  tabs: [for (final entry in regions) Tab(text: entry.key)],
+                  tabs: [
+                    for (final entry in regions)
+                      Tab(
+                        child: Text(
+                          entry.key,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 Expanded(
                   child: TabBarView(
