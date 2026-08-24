@@ -18,6 +18,16 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'swiss_ephemeris_bridge.dart';
 
+const _japaneseWeekdays = <String>['月', '火', '水', '木', '金', '土', '日'];
+
+String _weekdayLabel(DateTime date) => _japaneseWeekdays[date.weekday - 1];
+
+String _monthDayWithWeekday(DateTime date) => '${date.month}/${date.day}(${_weekdayLabel(date)})';
+
+String _fullDateWithWeekday(DateTime date) => '${date.year}年${date.month}月${date.day}日(${_weekdayLabel(date)})';
+
+String _slashDateWithWeekday(DateTime date) => '${date.year}/${date.month}/${date.day}(${_weekdayLabel(date)})';
+
 // 旧版の任意ダウンロードデータと廃止した履歴だけを、更新時に安全に掃除する。
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -2188,7 +2198,7 @@ class OverallFortuneCard extends StatelessWidget {
         period.startTime.day == period.endTime.day) {
       return '${time(period.startTime)}〜${time(period.endTime)}';
     }
-    return '${period.startTime.month}/${period.startTime.day} ${time(period.startTime)}〜${period.endTime.month}/${period.endTime.day} ${time(period.endTime)}';
+    return '${_monthDayWithWeekday(period.startTime)} ${time(period.startTime)}〜${_monthDayWithWeekday(period.endTime)} ${time(period.endTime)}';
   }
 
   @override
@@ -2235,7 +2245,7 @@ class OverallFortuneCard extends StatelessWidget {
                           Text(
                             date == null
                                 ? 'ぱんちょ式星占い'
-                                : 'ぱんちょ式星占い / ${date!.year}/${date!.month}/${date!.day}',
+                                : 'ぱんちょ式星占い / ${_slashDateWithWeekday(date!)}',
                             style: const TextStyle(fontSize: 10, color: Color(0xFF57D6D1), fontWeight: FontWeight.w800),
                           ),
                         ],
@@ -3159,7 +3169,7 @@ class TodayAstroDataPanel extends StatelessWidget {
     final timeLabel = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
     final base = (source ?? contextData).transit.date;
     if (time.year == base.year && time.month == base.month && time.day == base.day) return timeLabel;
-    return '${time.month}/${time.day} $timeLabel';
+    return '${_monthDayWithWeekday(time)} $timeLabel';
   }
 
   double _pairOrb(PlanetPlacement first, PlanetPlacement second, AspectType type) {
@@ -3193,7 +3203,7 @@ class TodayAstroDataPanel extends StatelessWidget {
           final allAspects = activeContext.fullAspects;
           final targetDate = activeContext.transit.date;
           final targetDateTimeLabel =
-              '${targetDate.year}年${targetDate.month}月${targetDate.day}日 '
+              '${_fullDateWithWeekday(targetDate)} '
               '${targetDate.hour.toString().padLeft(2, '0')}:'
               '${targetDate.minute.toString().padLeft(2, '0')}';
           final isTablet = MediaQuery.sizeOf(context).width >= 680;
@@ -4865,7 +4875,7 @@ class FortuneScoreCalculator {
         candidates.add((
           planet: event.planet,
           value: value,
-          detail: '${context.transit.date.month}/${context.transit.date.day}頃・第${event.natalHouse}ハウス・オーブ${event.orb.toStringAsFixed(1)}°・${event.phase.label}',
+          detail: '${_monthDayWithWeekday(context.transit.date)}頃・第${event.natalHouse}ハウス・オーブ${event.orb.toStringAsFixed(1)}°・${event.phase.label}',
           formula: '期間ピーク: ${event.planet.label}上限${maximum.toStringAsFixed(1)} × 4°以内の近さ${closeness.toStringAsFixed(2)} × 位相${phaseWeight.toStringAsFixed(2)}（最強1件のみ）',
         ));
       }
@@ -4881,7 +4891,7 @@ class FortuneScoreCalculator {
     Iterable<HoroscopeReadingContext> contexts,
   ) {
     final candidates = <({double value, String detail, String formula, Map<FortuneArea, double> areaEffects})>[];
-    String dateLabel(DateTime date) => '${date.month}/${date.day}';
+    String dateLabel(DateTime date) => _monthDayWithWeekday(date);
     for (final context in contexts) {
       for (final event in context.returns) {
         final isOuterPlanet = event.planet == AstroPlanet.uranus ||
@@ -7416,7 +7426,7 @@ class FortuneRuleService {
             ? '急いで結論を出すより、予定と条件を見直す方が安全です。'
             : '小さく試して反応を見ながら進めると安定します。';
     final moonNote = moon == null ? '' : '月は${moon.sign.label}${moon.degree.toStringAsFixed(0)}度。';
-    final answer = '結論: ${date.month}/${date.day}の$labelは${score}点。$flow $moonNote $voidNote 気をつけることは、返事・申込み・買い物を勢いだけで決めないことです。';
+    final answer = '結論: ${_monthDayWithWeekday(date)}の$labelは${score}点。$flow $moonNote $voidNote 気をつけることは、返事・申込み・買い物を勢いだけで決めないことです。';
     return compactForMobile ? _shortText(answer, 180) : answer;
   }
 
@@ -7997,8 +8007,8 @@ class FortuneRuleService {
     final nowScore = score(today);
     final nextScore = score(nextMonth);
     final label = area == FortuneArea.overall ? '総合運' : _questionTopicLabel(_questionTopic(question));
-    final nowLabel = '${today.month}/${today.day}頃';
-    final nextLabel = '${nextMonth.month}/${nextMonth.day}頃';
+    final nowLabel = '${_monthDayWithWeekday(today)}頃';
+    final nextLabel = '${_monthDayWithWeekday(nextMonth)}頃';
     final chooseNow = nowScore >= nextScore;
     final selectedLabel = chooseNow ? '今月' : '来月';
     final selectedDate = chooseNow ? nowLabel : nextLabel;
@@ -8085,8 +8095,8 @@ class FortuneRuleService {
     final peak = candidates.first;
     final careful = candidates.last;
     final label = topic == 'overall' ? '総合運' : _questionTopicLabel(topic);
-    final peakLabel = '${peak.key.month}/${peak.key.day}頃';
-    final carefulLabel = '${careful.key.month}/${careful.key.day}頃';
+    final peakLabel = '${_monthDayWithWeekday(peak.key)}頃';
+    final carefulLabel = '${_monthDayWithWeekday(careful.key)}頃';
     final action = _questionPeriodAction(topic);
     final core = '直近7日の$labelは、$peakLabel頃が${peak.value}点で最も動かしやすい時です。$carefulLabel頃は${careful.value}点なので、結論を急がず確認を優先して。';
     if (compactForMobile) return '結論: $core 強い日は、$action と流れを使えます。';
@@ -8111,7 +8121,7 @@ class FortuneRuleService {
       final start = monday.add(Duration(days: value.contains('来週') ? 7 : 0));
       dates = List.generate(7, (index) => start.add(Duration(days: index)));
       periodLabel = value.contains('来週') ? '来週' : '今週';
-      peakLabel = (date) => '${date.month}/${date.day}頃';
+      peakLabel = (date) => '${_monthDayWithWeekday(date)}頃';
     } else if (value.contains('今月') || value.contains('来月')) {
       final monthOffset = value.contains('来月') ? 1 : 0;
       final start = DateTime(now.year, now.month + monthOffset, 1, 12);
@@ -8121,7 +8131,7 @@ class FortuneRuleService {
         dates.add(date);
       }
       periodLabel = '${start.month}月';
-      peakLabel = (date) => '${date.month}/${date.day}頃';
+      peakLabel = (date) => '${_monthDayWithWeekday(date)}頃';
     } else if (value.contains('1か月') || value.contains('1ヶ月') || value.contains('3か月') || value.contains('3ヶ月')) {
       final months = value.contains('3か月') || value.contains('3ヶ月') ? 3 : 1;
       dates = List.generate(
@@ -8129,7 +8139,7 @@ class FortuneRuleService {
         (index) => DateTime(now.year, now.month + index, 15, 12),
       );
       periodLabel = months == 1 ? '今後1か月' : '今後3か月';
-      peakLabel = (date) => '${date.month}/${date.day}頃';
+      peakLabel = (date) => '${_monthDayWithWeekday(date)}頃';
     } else {
       final years = value.contains('5年')
           ? 5
@@ -8725,7 +8735,7 @@ class FortuneRuleService {
     }
     final window = best!;
     final label = topic == 'overall' ? '総合運' : _questionTopicLabel(topic);
-    final result = '${window.start.month}/${window.start.day}〜${window.end.month}/${window.end.day}が平均${window.average}点で比較的使いやすく、中でも${window.peakDate.month}/${window.peakDate.day}が$label${window.peakScore}点です。';
+    final result = '${_monthDayWithWeekday(window.start)}〜${_monthDayWithWeekday(window.end)}が平均${window.average}点で比較的使いやすく、中でも${_monthDayWithWeekday(window.peakDate)}が$label${window.peakScore}点です。';
     if (_questionTimingCache.length >= 32) {
       _questionTimingCache.remove(_questionTimingCache.keys.first);
     }
@@ -8789,16 +8799,16 @@ class FortuneRuleService {
     final first = windows.first;
     final periodLabels = windows
         .map(
-          (window) => '${window.key.month}/${window.key.day}頃から1週間（恋愛運${window.value}点）',
+          (window) => '${_monthDayWithWeekday(window.key)}頃から1週間（恋愛運${window.value}点）',
         )
         .join('、');
     final strongest = candidates.first;
     final focus = _loveTimingFocus(profile, strongest.key);
     final currentScore = FortuneScoreCalculator.dailyArea(contextData, FortuneArea.love, FortuneScoreCalculator.standardBase(FortuneArea.love));
     if (compactForMobile) {
-      return '結論: ${profile.name}さんの恋愛運が最も上がるのは${strongest.key.month}/${strongest.key.day}頃から1週間で、${strongest.value}点です。$focus その週までに、誘える相手か参加する場を一つ決めておきましょう。';
+      return '結論: ${profile.name}さんの恋愛運が最も上がるのは${_monthDayWithWeekday(strongest.key)}頃から1週間で、${strongest.value}点です。$focus その週までに、誘える相手か参加する場を一つ決めておきましょう。';
     }
-    return '結論: ${profile.name}さんの出会いと関係が進みやすい波は、今後6か月では$periodLabelsです。中でも${strongest.key.month}/${strongest.key.day}頃からの1週間が最も強く、恋愛運は${strongest.value}点まで上がります。彼女ができる日を断定する占いではありませんが、この期間は出会い、連絡、会う約束を関係へつなげやすい時です。$focus 今週の恋愛運は${currentScore}点なので、待つだけでなく、強い週の前までにプロフィール、誘える相手、参加する場を一つ整えておくと波を使えます。';
+    return '結論: ${profile.name}さんの出会いと関係が進みやすい波は、今後6か月では$periodLabelsです。中でも${_monthDayWithWeekday(strongest.key)}頃からの1週間が最も強く、恋愛運は${strongest.value}点まで上がります。彼女ができる日を断定する占いではありませんが、この期間は出会い、連絡、会う約束を関係へつなげやすい時です。$focus 今週の恋愛運は${currentScore}点なので、待つだけでなく、強い週の前までにプロフィール、誘える相手、参加する場を一つ整えておくと波を使えます。';
   }
 
   String _loveTimingFocus(AstroProfile profile, DateTime date) {
@@ -9325,7 +9335,7 @@ class _DailyReadingState extends State<DailyReading> {
           onShare: () {
             showFortuneShareComposer(
               context,
-              periodLabel: '${selectedDate.year}/${selectedDate.month}/${selectedDate.day}の毎日占い',
+              periodLabel: '${_slashDateWithWeekday(selectedDate)}の毎日占い',
               score: FortuneScoreCalculator.dailyOverall(readingContext),
               body: OverallFortuneCard(detailed: detailed, contextData: readingContext).body,
             );
@@ -9410,7 +9420,7 @@ class _DailyReadingState extends State<DailyReading> {
         period.startTime.day == period.endTime.day) {
       return '${time(period.startTime)}〜${time(period.endTime)}';
     }
-    return '${period.startTime.month}/${period.startTime.day} ${time(period.startTime)}〜${period.endTime.month}/${period.endTime.day} ${time(period.endTime)}';
+    return '${_monthDayWithWeekday(period.startTime)} ${time(period.startTime)}〜${_monthDayWithWeekday(period.endTime)} ${time(period.endTime)}';
   }
 }
 
@@ -9451,7 +9461,7 @@ class DailyFortuneTrendChart extends StatelessWidget {
       }
       overall.add(FortuneScoreCalculator.overallWithReturnBonus(dayScores, reading));
     }
-    final labels = dates.map((date) => '${date.month}/${date.day}').toList();
+    final labels = dates.map(_monthDayWithWeekday).toList();
     final series = [
       FortuneFlowSeries(label: '総合', color: const Color(0xFFF6D77A), values: overall),
       FortuneFlowSeries(label: '恋愛', color: const Color(0xFFFF82B2), values: values[FortuneArea.love]!),
@@ -10298,7 +10308,7 @@ class DailyDateNavigator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateLabel = '${date.year}年${date.month}月${date.day}日';
+    final dateLabel = _fullDateWithWeekday(date);
     final offsetLabel = offset == 0
         ? '今日'
         : offset > 0
@@ -10610,7 +10620,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
       LongRangeMode.year => '年間占い',
     };
     final subtitle = switch (_mode) {
-      LongRangeMode.week => '${widget.profile.name}さんの${targetWeek.month}/${targetWeek.day}〜${targetWeekEnd.month}/${targetWeekEnd.day}の流れ',
+      LongRangeMode.week => '${widget.profile.name}さんの${_monthDayWithWeekday(targetWeek)}〜${_monthDayWithWeekday(targetWeekEnd)}の流れ',
       LongRangeMode.month => '${widget.profile.name}さんの${targetMonth.year}年${targetMonth.month}月の流れ',
       LongRangeMode.year => '${widget.profile.name}さんの$targetYear年の大きな星回り',
     };
@@ -10621,7 +10631,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
     final periodIdentity = _periodIdentity(targetWeek, targetMonth, targetYear);
     final cards = _cardsFor(targetWeek, targetMonth, targetYear);
     final shareLabel = switch (_mode) {
-      LongRangeMode.week => '${targetWeek.year}/${targetWeek.month}/${targetWeek.day}〜${targetWeekEnd.month}/${targetWeekEnd.day}',
+      LongRangeMode.week => '${_slashDateWithWeekday(targetWeek)}〜${_monthDayWithWeekday(targetWeekEnd)}',
       LongRangeMode.month => '${targetMonth.year}年${targetMonth.month}月',
       LongRangeMode.year => '$targetYear年',
     };
@@ -10832,7 +10842,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
     final ingress = ephemeris.nextSignIngress(planet, start);
     final end = monthMode ? DateTime(start.year, start.month + 1) : DateTime(start.year + 1);
     final moveLabel = ingress != null && ingress.time.isBefore(end)
-        ? ' → ${ingress.sign.label} ${ingress.time.month}/${ingress.time.day}'
+        ? ' → ${ingress.sign.label} ${_monthDayWithWeekday(ingress.time)}'
         : '';
     return '${planet.label}: ${placement.sign.label}$moveLabel';
   }
@@ -11091,7 +11101,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
       .reduce((a, b) => values[a] >= values[b] ? a : b);
     int lowIndex(List<int> values) => List<int>.generate(values.length, (i) => i)
       .reduce((a, b) => values[a] <= values[b] ? a : b);
-    String dayLabel(int index) => '${dates[index].month}/${dates[index].day}';
+    String dayLabel(int index) => _monthDayWithWeekday(dates[index]);
     final love = scores(FortuneArea.love, 70);
     final work = scores(FortuneArea.work, 74);
     final money = scores(FortuneArea.money, 68);
@@ -11126,7 +11136,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
       final highestScore = values.reduce(math.max);
       final lowestScore = values.reduce(math.min);
       final hasDailyDifference = highestScore - lowestScore >= 2;
-      final period = '${weekStart.month}/${weekStart.day}週';
+      final period = '${_monthDayWithWeekday(weekStart)}週';
       final dignityDetails = <String>[];
       String? dignityFormula;
       for (final context in contexts) {
@@ -11702,7 +11712,7 @@ class LongRangeNavigator extends StatelessWidget {
   Widget build(BuildContext context) {
     final weekEnd = weekStart.add(const Duration(days: 6));
     final label = switch (mode) {
-      LongRangeMode.week => '${weekStart.year}年 ${weekStart.month}/${weekStart.day}〜${weekEnd.month}/${weekEnd.day}',
+      LongRangeMode.week => '${weekStart.year}年 ${_monthDayWithWeekday(weekStart)}〜${_monthDayWithWeekday(weekEnd)}',
       LongRangeMode.month => '${month.year}年${month.month}月',
       LongRangeMode.year => '$year年',
     };
@@ -11872,7 +11882,7 @@ class _LongRangeChartState extends State<LongRangeChart> {
         : widget.mode == LongRangeMode.week
             ? List<String>.generate(4, (index) {
                 final date = widget.weekStart.add(Duration(days: index * 7));
-                return '${date.month}/${date.day}週';
+                return '${_monthDayWithWeekday(date)}週';
               })
             : List<String>.generate(12, (index) => '${index + 1}月');
     final series = _seriesForCurrentPeriod();
@@ -12674,8 +12684,8 @@ class ExternalAstroDataExportCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final description = switch (mode) {
-      LongRangeMode.week => 'この週の7日分の星配置と5運勢点数を保存できます。AIチャットへ添えて「${weekStart.month}/${weekStart.day + 2}を詳しく占って」のように日付を指定して相談できます。',
-      LongRangeMode.month => 'この月の毎日の星配置と5運勢点数を保存できます。AIチャットへ添えて「${month.month}/${month.day + 14}を詳しく占って」のように日付を指定して相談できます。',
+      LongRangeMode.week => 'この週の7日分の星配置と5運勢点数を保存できます。AIチャットへ添えて日付を指定して相談できます。',
+      LongRangeMode.month => 'この月の毎日の星配置と5運勢点数を保存できます。AIチャットへ添えて日付を指定して相談できます。',
       LongRangeMode.year => 'この年の各月1日・15日の星配置と月別の5運勢点数を保存できます。AIチャットへ添えて、時期ごとの流れを詳しく相談できます。',
     };
     return GlassPanel(
@@ -14412,7 +14422,7 @@ class MoonInfluenceForecastPanel extends StatelessWidget {
     })..sort((a, b) => b.score.compareTo(a.score));
     final strong = entries.take(2).toList();
     final careful = entries.last;
-    String label(_MoonForecastEntry entry) => '${entry.date.month}/${entry.date.day}';
+    String label(_MoonForecastEntry entry) => _monthDayWithWeekday(entry.date);
     return GlassPanel(
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
@@ -15623,7 +15633,7 @@ class _CustomReadingState extends State<CustomReading> {
   String _navigatorQuestion({bool detailed = false}) {
     final topic = _navigatorTopicLabel(_navigatorTopic);
     final date = _navigatorDate;
-    final dateLabel = '${date.year}/${date.month}/${date.day}';
+    final dateLabel = _slashDateWithWeekday(date);
     final situation = _navigatorSituation.label;
     final period = _navigatorPeriod.label;
     if (!detailed) {
@@ -15783,7 +15793,7 @@ class _CustomReadingState extends State<CustomReading> {
             OutlinedButton.icon(
               onPressed: _selectNavigatorDate,
               icon: const Icon(Icons.calendar_today_outlined, size: 16),
-              label: Text('${_navigatorDate.year}/${_navigatorDate.month}/${_navigatorDate.day} を選択中'),
+              label: Text('${_slashDateWithWeekday(_navigatorDate)} を選択中'),
             ),
           ],
           const SizedBox(height: 10),
@@ -16063,7 +16073,7 @@ class _ProfileAstroJsonExportCardState extends State<ProfileAstroJsonExportCard>
     )._export(context);
   }
 
-  String _dayLabel(DateTime value) => '${value.year}年${value.month}月${value.day}日';
+  String _dayLabel(DateTime value) => _fullDateWithWeekday(value);
   String _monthLabel(DateTime value) => '${value.year}年${value.month}月';
 
   @override
@@ -17070,7 +17080,7 @@ class CustomFortuneLogTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final date =
-        '${log.createdAt.year}/${log.createdAt.month}/${log.createdAt.day} ${log.createdAt.hour.toString().padLeft(2, '0')}:${log.createdAt.minute.toString().padLeft(2, '0')}';
+        '${_slashDateWithWeekday(log.createdAt)} ${log.createdAt.hour.toString().padLeft(2, '0')}:${log.createdAt.minute.toString().padLeft(2, '0')}';
     return Container(
       margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.all(12),
@@ -18685,7 +18695,7 @@ class SignIngress {
 
   String get label {
     final timeLabel = '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
-    return '${time.month}/${time.day} $timeLabel';
+    return '${_monthDayWithWeekday(time)} $timeLabel';
   }
 }
 
