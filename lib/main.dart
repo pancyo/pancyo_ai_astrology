@@ -4777,13 +4777,22 @@ class FortuneScoreCalculator {
     DateTime periodStart,
     int base,
   ) {
+    return periodAreaBreakdown(contextData, area, periodStart, base).score;
+  }
+
+  static FortuneScoreBreakdown periodAreaBreakdown(
+    HoroscopeReadingContext contextData,
+    FortuneArea area,
+    DateTime periodStart,
+    int base,
+  ) {
     return _scoreBreakdown(
       contextData: contextData,
       area: area,
       date: periodStart,
       base: base,
       includeAllSignals: false,
-    ).score;
+    );
   }
 
   static int overallFromAreas(Iterable<int> areaScores) {
@@ -6298,6 +6307,14 @@ class FortuneScoreFactor {
   String get signedValue => '${value >= 0 ? '+' : ''}${value.toStringAsFixed(value.abs() >= 2 ? 0 : 1)}';
 
   String get preciseSignedValue => '${value >= 0 ? '+' : ''}${value.toStringAsFixed(1)}';
+
+  Map<String, Object?> toJson() => {
+        'label': label,
+        'value': double.parse(value.toStringAsFixed(2)),
+        'signed': preciseSignedValue,
+        if (detail != null) 'detail': detail,
+        if (formula != null) 'formula': formula,
+      };
 }
 
 class _ScoreCalculation {
@@ -6321,6 +6338,16 @@ class FortuneScoreBreakdown {
   final int score;
 
   double get adjustment => factors.fold<double>(0, (sum, factor) => sum + factor.value);
+
+  Map<String, Object?> toJson({String? periodNote}) => {
+        'base': base,
+        'factors': factors.map((factor) => factor.toJson()).toList(),
+        'adjustment': double.parse(adjustment.toStringAsFixed(2)),
+        'raw_score': double.parse(rawScore.toStringAsFixed(2)),
+        'final_score': score,
+        'rounding_and_clamp': 'base + adjustment = raw_score。raw_scoreを四捨五入し、50〜99点に収めてfinal_scoreにします。',
+        if (periodNote != null) 'period_note': periodNote,
+      };
 
   List<FortuneScoreFactor> get keyFactors {
     final sorted = [...factors]..sort((a, b) => b.value.abs().compareTo(a.value.abs()));
@@ -9578,6 +9605,35 @@ class DailyAstroDataExportCard extends StatelessWidget {
     return '${jst.year.toString().padLeft(4, '0')}-${jst.month.toString().padLeft(2, '0')}-${jst.day.toString().padLeft(2, '0')} ${jst.hour.toString().padLeft(2, '0')}:${jst.minute.toString().padLeft(2, '0')}:00+09:00';
   }
 
+  Map<String, Object?> _scoreBreakdowns(HoroscopeReadingContext context) {
+    final areas = <FortuneArea, FortuneScoreBreakdown>{
+      for (final area in const [FortuneArea.love, FortuneArea.work, FortuneArea.money, FortuneArea.mental])
+        area: FortuneScoreCalculator.dailyAreaBreakdown(context, area, FortuneScoreCalculator.standardBase(area)),
+    };
+    final areaScores = <String, int>{
+      'love': areas[FortuneArea.love]!.score,
+      'work': areas[FortuneArea.work]!.score,
+      'money': areas[FortuneArea.money]!.score,
+      'mental': areas[FortuneArea.mental]!.score,
+    };
+    final average = FortuneScoreCalculator.overallFromAreas(areaScores.values);
+    final bonus = FortuneScoreCalculator.overallReturnBonus(context);
+    final rawOverall = average + (bonus?.value ?? 0);
+    return {
+      'overall': {
+        'base': average,
+        'area_scores': areaScores,
+        'average_before_return_bonus': average,
+        'return_bonus': bonus == null ? null : {'planet': bonus.planet.label, 'value': double.parse(bonus.value.toStringAsFixed(2)), 'detail': bonus.detail, 'formula': bonus.formula},
+        'adjustment': double.parse((bonus?.value ?? 0).toStringAsFixed(2)),
+        'raw_score': double.parse(rawOverall.toStringAsFixed(2)),
+        'final_score': rawOverall.round().clamp(50, 99).toInt(),
+        'formula': '4分野のfinal_score平均 → 総合リターン特例を最強1件だけ加算 → 四捨五入（50〜99点）',
+      },
+      for (final entry in areas.entries) entry.key.name: entry.value.toJson(),
+    };
+  }
+
   Map<String, Object?> _data() {
     final voidMoon = contextData.transit.voidMoon;
     final overallReturnBonus = FortuneScoreCalculator.overallReturnBonus(contextData);
@@ -9591,7 +9647,7 @@ class DailyAstroDataExportCard extends StatelessWidget {
     final dailyEvents = DailyAstroEventsCard(date: date, contextData: contextData)
         ._dailyEvents(dayStart, dayStart.add(const Duration(days: 1)), AstrologyDataSources.current);
     return {
-      'schema': 'pancyo_astrology_daily_consult_v1',
+      'schema': 'pancyo_astrology_daily_consult_v2',
       'generated_at': DateTime.now().toIso8601String(),
       'date_time_jst': _jst(date),
       'timezone': 'Asia/Tokyo',
@@ -9612,6 +9668,7 @@ class DailyAstroDataExportCard extends StatelessWidget {
         'money': money,
         'mental': mental,
       },
+      'score_breakdown': _scoreBreakdowns(contextData),
       'overall_return_bonus': overallReturnBonus == null
           ? null
           : {
@@ -12225,6 +12282,291 @@ class ExternalAstroDataExportCard extends StatelessWidget {
         .toList();
   }
 
+  String _areaKey(FortuneArea area) => switch (area) {
+        FortuneArea.love => 'love',
+        FortuneArea.work => 'work',
+        FortuneArea.money => 'money',
+        FortuneArea.mental => 'mental',
+        FortuneArea.overall => 'overall',
+      };
+
+  String _areaTitle(FortuneArea area) => switch (area) {
+        FortuneArea.love => '恋愛運',
+        FortuneArea.work => '仕事運',
+        FortuneArea.money => '金運',
+        FortuneArea.mental => '健康・メンタル運',
+        FortuneArea.overall => '総合運',
+      };
+
+  Map<String, Object?> _overallBreakdownSnapshot(
+    Map<FortuneArea, FortuneScoreBreakdown> areaBreakdowns,
+    HoroscopeReadingContext context,
+  ) {
+    final areaScores = <String, int>{
+      for (final area in const [
+        FortuneArea.love,
+        FortuneArea.work,
+        FortuneArea.money,
+        FortuneArea.mental,
+      ])
+        _areaKey(area): areaBreakdowns[area]!.score,
+    };
+    final average = FortuneScoreCalculator.overallFromAreas(areaScores.values);
+    final bonus = FortuneScoreCalculator.overallReturnBonus(context);
+    final rawScore = average + (bonus?.value ?? 0);
+    final finalScore = rawScore.round().clamp(50, 99).toInt();
+    return {
+      'base': average,
+      'area_scores': areaScores,
+      'average_before_return_bonus': average,
+      'return_bonus': bonus == null
+          ? null
+          : {
+              'planet': bonus.planet.label,
+              'value': double.parse(bonus.value.toStringAsFixed(2)),
+              'detail': bonus.detail,
+              'formula': bonus.formula,
+            },
+      'adjustment': double.parse((bonus?.value ?? 0).toStringAsFixed(2)),
+      'raw_score': double.parse(rawScore.toStringAsFixed(2)),
+      'final_score': finalScore,
+      'formula': '恋愛・仕事・金運・健康/メンタルの4分野のfinal_score平均 → 総合リターン特例を最強1件だけ加算 → 四捨五入（50〜99点）',
+    };
+  }
+
+  Map<String, Object?> _dailyScoreBreakdowns(HoroscopeReadingContext context) {
+    final areaBreakdowns = <FortuneArea, FortuneScoreBreakdown>{
+      for (final area in const [
+        FortuneArea.love,
+        FortuneArea.work,
+        FortuneArea.money,
+        FortuneArea.mental,
+      ])
+        area: FortuneScoreCalculator.dailyAreaBreakdown(
+          context,
+          area,
+          FortuneScoreCalculator.standardBase(area),
+        ),
+    };
+    return {
+      'overall': _overallBreakdownSnapshot(areaBreakdowns, context),
+      for (final entry in areaBreakdowns.entries)
+        _areaKey(entry.key): entry.value.toJson(),
+    };
+  }
+
+  Map<String, Object?> _periodAreaBreakdownSnapshot({
+    required FortuneArea area,
+    required List<HoroscopeReadingContext> contexts,
+    required List<DateTime> dates,
+    required int finalScore,
+    required String aggregation,
+    double periodAdjustment = 0,
+  }) {
+    final samples = List.generate(contexts.length, (index) {
+      final breakdown = FortuneScoreCalculator.periodAreaBreakdown(
+        contexts[index],
+        area,
+        dates[index],
+        FortuneScoreCalculator.standardBase(area),
+      );
+      return {
+        'date_time_jst': _dateTimeJst(dates[index]),
+        'score': breakdown.score,
+        'calculation': breakdown.toJson(),
+      };
+    });
+    final sampleAverage = (samples
+                .map((sample) => sample['score'] as int)
+                .fold<int>(0, (sum, score) => sum + score) /
+            samples.length)
+        .round();
+    return {
+      'area': _areaKey(area),
+      'aggregation': aggregation,
+      'samples': samples,
+      'sample_score_average': sampleAverage,
+      'period_adjustment': double.parse(periodAdjustment.toStringAsFixed(2)),
+      'final_score': finalScore,
+      'formula': '各基準時刻のcalculation.final_scoreを平均し、期間専用補正があれば加えて最終点にします。',
+    };
+  }
+
+  Map<String, Object?> _periodOverallBreakdownSnapshot({
+    required List<HoroscopeReadingContext> contexts,
+    required List<DateTime> dates,
+    required int finalScore,
+    required String aggregation,
+    double periodAdjustment = 0,
+    Map<String, Object?>? extra,
+  }) {
+    final samples = List.generate(contexts.length, (index) {
+      final scoreBreakdown = _dailyScoreBreakdowns(contexts[index]);
+      return {
+        'date_time_jst': _dateTimeJst(dates[index]),
+        'score': scoreBreakdown['overall']! is Map<String, Object?>
+            ? (scoreBreakdown['overall']! as Map<String, Object?>)['final_score']
+            : null,
+        'calculation': scoreBreakdown['overall'],
+        'area_scores': {
+          for (final area in const [
+            FortuneArea.love,
+            FortuneArea.work,
+            FortuneArea.money,
+            FortuneArea.mental,
+          ])
+            _areaKey(area):
+                (scoreBreakdown[_areaKey(area)]! as Map<String, Object?>)['final_score'],
+        },
+      };
+    });
+    final sampleAverage = (samples
+                .map((sample) => sample['score'] as int)
+                .fold<int>(0, (sum, score) => sum + score) /
+            samples.length)
+        .round();
+    return {
+      'area': 'overall',
+      'aggregation': aggregation,
+      'samples': samples,
+      'sample_score_average': sampleAverage,
+      'period_adjustment': double.parse(periodAdjustment.toStringAsFixed(2)),
+      'final_score': finalScore,
+      'formula': '各基準時刻の4分野平均（必要な場合は各日の総合リターン特例を含む）を期間平均し、期間専用補正を加えて最終点にします。',
+      if (extra != null) ...extra,
+    };
+  }
+
+  Map<String, Object?> _annualAreaBreakdownSnapshot({
+    required FortuneArea area,
+    required List<HoroscopeReadingContext> monthlyContexts,
+    required List<HoroscopeReadingContext> midMonthContexts,
+    required int finalScore,
+    required double annualAdjustment,
+  }) {
+    final months = List.generate(12, (index) {
+      final firstDate = DateTime(monthlyContexts[index].transit.date.year, monthlyContexts[index].transit.date.month, 1, 12);
+      final middleDate = DateTime(monthlyContexts[index].transit.date.year, monthlyContexts[index].transit.date.month, 15, 12);
+      final first = FortuneScoreCalculator.periodAreaBreakdown(
+        monthlyContexts[index],
+        area,
+        firstDate,
+        FortuneScoreCalculator.standardBase(area),
+      );
+      final middle = FortuneScoreCalculator.periodAreaBreakdown(
+        midMonthContexts[index],
+        area,
+        middleDate,
+        FortuneScoreCalculator.standardBase(area),
+      );
+      return {
+        'month': '${firstDate.year.toString().padLeft(4, '0')}-${firstDate.month.toString().padLeft(2, '0')}',
+        'score_average': ((first.score + middle.score) / 2).round(),
+        'first': {'date_time_jst': _dateTimeJst(firstDate), 'score': first.score, 'calculation': first.toJson()},
+        'middle': {'date_time_jst': _dateTimeJst(middleDate), 'score': middle.score, 'calculation': middle.toJson()},
+      };
+    });
+    final baseScore = (months
+                .map((month) => month['score_average'] as int)
+                .fold<int>(0, (sum, score) => sum + score) /
+            months.length)
+        .round();
+    return {
+      'area': _areaKey(area),
+      'aggregation': '各月1日・15日、計24時点の12:00 JSTスコアを月ごとに平均し、その12か月平均',
+      'months': months,
+      'base_score_before_annual_event': baseScore,
+      'annual_event_adjustment': double.parse(annualAdjustment.toStringAsFixed(2)),
+      'final_score': finalScore,
+      'formula': '24時点を月ごとに平均 → 12か月平均を四捨五入 → 年専用の人生イベント補正を分野別に加算 → 50〜99点に収めます。',
+    };
+  }
+
+  Map<String, Object?> _periodBreakdownSnapshots() {
+    if (mode == LongRangeMode.week || mode == LongRangeMode.month) {
+      final dates = mode == LongRangeMode.week
+          ? List.generate(7, (index) => DateTime(weekStart.year, weekStart.month, weekStart.day + index, 12))
+          : <int>{1, 8, 15, 22, DateTime(month.year, month.month + 1, 0).day}
+              .map((day) => DateTime(month.year, month.month, day, 12))
+              .toList()
+            ..sort();
+      final contexts = dates.map((date) => const AstrologyEngine().buildPreviewContext(profile: profile, date: date)).toList();
+      final aggregation = mode == LongRangeMode.week
+          ? '7日分の12:00 JSTスコア平均'
+          : '月内5時点（1日・8日・15日・22日・最終日）の12:00 JSTスコア平均';
+      final result = <String, Object?>{};
+      for (final area in const [FortuneArea.love, FortuneArea.work, FortuneArea.money, FortuneArea.mental]) {
+        final scores = contexts
+            .map((context) => FortuneScoreCalculator.periodAreaBreakdown(context, area, context.transit.date, FortuneScoreCalculator.standardBase(area)).score)
+            .toList();
+        result[_areaTitle(area)] = _periodAreaBreakdownSnapshot(
+          area: area,
+          contexts: contexts,
+          dates: dates,
+          finalScore: (scores.reduce((sum, score) => sum + score) / scores.length).round(),
+          aggregation: aggregation,
+        );
+      }
+      final overallScores = contexts.map((context) {
+        final areas = <FortuneArea, FortuneScoreBreakdown>{
+          for (final area in const [FortuneArea.love, FortuneArea.work, FortuneArea.money, FortuneArea.mental])
+            area: FortuneScoreCalculator.periodAreaBreakdown(context, area, context.transit.date, FortuneScoreCalculator.standardBase(area)),
+        };
+        return FortuneScoreCalculator.overallWithReturnBonus(areas.values.map((breakdown) => breakdown.score), context);
+      }).toList();
+      final peak = FortuneScoreCalculator.periodReturnPeakBonus(contexts);
+      result['総合運'] = _periodOverallBreakdownSnapshot(
+        contexts: contexts,
+        dates: dates,
+        finalScore: ((overallScores.reduce((sum, score) => sum + score) / overallScores.length) + (peak?.value ?? 0)).round().clamp(50, 99).toInt(),
+        aggregation: aggregation,
+        periodAdjustment: peak?.value ?? 0,
+        extra: {
+          'period_peak_bonus': peak == null
+              ? null
+              : {'planet': peak.planet.label, 'value': double.parse(peak.value.toStringAsFixed(2)), 'detail': peak.detail, 'formula': peak.formula},
+        },
+      );
+      return result;
+    }
+
+    final monthlyContexts = List.generate(12, (index) => const AstrologyEngine().buildPreviewContext(profile: profile, date: DateTime(year, index + 1, 1, 12)));
+    final midMonthContexts = List.generate(12, (index) => const AstrologyEngine().buildPreviewContext(profile: profile, date: DateTime(year, index + 1, 15, 12)));
+    final annualBoost = FortuneScoreCalculator.annualLifeEventBoost([...monthlyContexts, ...midMonthContexts]);
+    final result = <String, Object?>{};
+    final areaScores = <FortuneArea, int>{};
+    for (final area in const [FortuneArea.love, FortuneArea.work, FortuneArea.money, FortuneArea.mental]) {
+      final base = _annualAreaBreakdownSnapshot(
+        area: area,
+        monthlyContexts: monthlyContexts,
+        midMonthContexts: midMonthContexts,
+        finalScore: 0,
+        annualAdjustment: 0,
+      );
+      final baseScore = base['base_score_before_annual_event'] as int;
+      final adjustment = annualBoost?.effectFor(area) ?? 0;
+      final finalScore = (baseScore + adjustment).round().clamp(50, 99).toInt();
+      areaScores[area] = finalScore;
+      result[_areaTitle(area)] = _annualAreaBreakdownSnapshot(
+        area: area,
+        monthlyContexts: monthlyContexts,
+        midMonthContexts: midMonthContexts,
+        finalScore: finalScore,
+        annualAdjustment: adjustment,
+      );
+    }
+    result['総合運'] = {
+      'area': 'overall',
+      'aggregation': '年内24時点の各分野集計後、4分野の最終点を平均',
+      'area_scores': {for (final entry in areaScores.entries) _areaKey(entry.key): entry.value},
+      'average_before_annual_event': FortuneScoreCalculator.overallFromAreas(areaScores.values),
+      'annual_event_note': annualBoost == null ? null : {'value': annualBoost.value, 'detail': annualBoost.detail, 'formula': annualBoost.formula},
+      'final_score': FortuneScoreCalculator.overallFromAreas(areaScores.values),
+      'formula': '各分野の24時点集計と年専用補正を確定 → 恋愛・仕事・金運・健康/メンタルの4分野平均 → 総合運',
+    };
+    return result;
+  }
+
   Map<String, Object?> _transitSnapshot(HoroscopeReadingContext context) {
     final dayStart = DateTime(context.transit.date.year, context.transit.date.month, context.transit.date.day);
     final stationEvents = DailyAstroEventsCard(date: context.transit.date, contextData: context)
@@ -12282,6 +12624,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
       'work': FortuneScoreCalculator.dailyArea(daily, FortuneArea.work, FortuneScoreCalculator.standardBase(FortuneArea.work)),
       'money': FortuneScoreCalculator.dailyArea(daily, FortuneArea.money, FortuneScoreCalculator.standardBase(FortuneArea.money)),
       'mental': FortuneScoreCalculator.dailyArea(daily, FortuneArea.mental, FortuneScoreCalculator.standardBase(FortuneArea.mental)),
+      'score_breakdown': _dailyScoreBreakdowns(daily),
       'moon_sign': daily.transit.placements
           .where((item) => item.planet == AstroPlanet.moon)
           .map((item) => item.sign.label)
@@ -12329,19 +12672,32 @@ class ExternalAstroDataExportCard extends StatelessWidget {
       final work = average(workPair);
       final money = average(moneyPair);
       final mental = average(mentalPair);
+      final overall = ((
+                    FortuneScoreCalculator.overallWithReturnBonus([lovePair[0], workPair[0], moneyPair[0], mentalPair[0]], first) +
+                    FortuneScoreCalculator.overallWithReturnBonus([lovePair[1], workPair[1], moneyPair[1], mentalPair[1]], middle)) /
+                  2)
+              .round();
       return {
         'month': '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}',
         'transit_samples': [_transitSnapshot(first), _transitSnapshot(middle)],
         'scores': {
-          'overall': ((
-                    FortuneScoreCalculator.overallWithReturnBonus([lovePair[0], workPair[0], moneyPair[0], mentalPair[0]], first) +
-                    FortuneScoreCalculator.overallWithReturnBonus([lovePair[1], workPair[1], moneyPair[1], mentalPair[1]], middle)) /
-                  2)
-              .round(),
+          'overall': overall,
           'love': love,
           'work': work,
           'money': money,
           'mental': mental,
+        },
+        'score_breakdown': {
+          'overall': _periodOverallBreakdownSnapshot(
+            contexts: [first, middle],
+            dates: [firstDate, middleDate],
+            finalScore: overall,
+            aggregation: '各月1日・15日の12:00 JST総合運平均',
+          ),
+          'love': _periodAreaBreakdownSnapshot(area: FortuneArea.love, contexts: [first, middle], dates: [firstDate, middleDate], finalScore: love, aggregation: '各月1日・15日の12:00 JSTスコア平均'),
+          'work': _periodAreaBreakdownSnapshot(area: FortuneArea.work, contexts: [first, middle], dates: [firstDate, middleDate], finalScore: work, aggregation: '各月1日・15日の12:00 JSTスコア平均'),
+          'money': _periodAreaBreakdownSnapshot(area: FortuneArea.money, contexts: [first, middle], dates: [firstDate, middleDate], finalScore: money, aggregation: '各月1日・15日の12:00 JSTスコア平均'),
+          'mental': _periodAreaBreakdownSnapshot(area: FortuneArea.mental, contexts: [first, middle], dates: [firstDate, middleDate], finalScore: mental, aggregation: '各月1日・15日の12:00 JSTスコア平均'),
         },
       };
     });
@@ -12419,6 +12775,8 @@ class ExternalAstroDataExportCard extends StatelessWidget {
       return [...evidence, annualEvidence];
     }
 
+    final periodBreakdownSnapshots = _periodBreakdownSnapshots();
+
     if (cards.isNotEmpty) {
       return cards.map((item) => {
             'area': item.title,
@@ -12433,6 +12791,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
             'representative_transit_scope': 'sign・transit_house・natal_house・aspect_basisは期間開始日12:00 JSTの代表配置',
             'basis_note': 'scoreは${_scoreAggregation}です。日別の配置と点数はdaily_scores、年間の月別データはannual_monthsを参照してください。',
             'representative_transit_date_jst': _dateTimeJst(contextData.transit.date),
+            'score_breakdown': periodBreakdownSnapshots[item.title],
           }).toList();
     }
 
@@ -12446,16 +12805,20 @@ class ExternalAstroDataExportCard extends StatelessWidget {
       required int mental,
       String? overallEvidence,
       Map<String, List<String>> areaEvidence = const {},
-    }) => [
+      Map<String, Object?> scoreBreakdowns = const {},
+    }) {
+      Map<String, Object?>? breakdownFor(String title) => scoreBreakdowns[title] as Map<String, Object?>?;
+      return [
       _periodScoreEntry(area: '総合運', score: overall, evidence: [
         '総合運: 4分野平均を${_scoreAggregation}で集計',
         if (overallEvidence != null) overallEvidence,
-      ]),
-      _periodScoreEntry(area: '恋愛運', score: love, evidence: areaEvidence['恋愛運'] ?? const []),
-      _periodScoreEntry(area: '仕事運', score: work, evidence: areaEvidence['仕事運'] ?? const []),
-      _periodScoreEntry(area: '金運', score: money, evidence: areaEvidence['金運'] ?? const []),
-      _periodScoreEntry(area: '健康・メンタル運', score: mental, evidence: areaEvidence['健康・メンタル運'] ?? const []),
+      ], scoreBreakdown: breakdownFor('総合運')),
+      _periodScoreEntry(area: '恋愛運', score: love, evidence: areaEvidence['恋愛運'] ?? const [], scoreBreakdown: breakdownFor('恋愛運')),
+      _periodScoreEntry(area: '仕事運', score: work, evidence: areaEvidence['仕事運'] ?? const [], scoreBreakdown: breakdownFor('仕事運')),
+      _periodScoreEntry(area: '金運', score: money, evidence: areaEvidence['金運'] ?? const [], scoreBreakdown: breakdownFor('金運')),
+      _periodScoreEntry(area: '健康・メンタル運', score: mental, evidence: areaEvidence['健康・メンタル運'] ?? const [], scoreBreakdown: breakdownFor('健康・メンタル運')),
     ];
+    }
 
     if (mode == LongRangeMode.week) {
       final contexts = List.generate(7, (index) {
@@ -12488,6 +12851,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
         money: average(moneyScores),
         mental: average(mentalScores),
         overallEvidence: peak == null ? null : '期間ピーク補正: ${peak.planet.label}+${peak.value.toStringAsFixed(1)}点（${peak.detail}）',
+        scoreBreakdowns: periodBreakdownSnapshots,
       );
     }
 
@@ -12524,6 +12888,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
         money: average(moneyScores),
         mental: average(mentalScores),
         overallEvidence: peak == null ? null : '期間ピーク補正: ${peak.planet.label}+${peak.value.toStringAsFixed(1)}点（${peak.detail}）',
+        scoreBreakdowns: periodBreakdownSnapshots,
       );
     }
 
@@ -12579,6 +12944,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
       mental: withAnnualLifeEvent(mental, FortuneArea.mental),
       overallEvidence: annualBoost == null ? null : '年専用の人生イベント補正: +${annualBoost.value.toStringAsFixed(1)}点（${annualBoost.detail}）',
       areaEvidence: annualAreaEvidence,
+      scoreBreakdowns: periodBreakdownSnapshots,
     );
   }
 
@@ -12586,6 +12952,7 @@ class ExternalAstroDataExportCard extends StatelessWidget {
     required String area,
     required int score,
     List<String> evidence = const [],
+    Map<String, Object?>? scoreBreakdown,
   }) => {
         'area': area,
         'score': score,
@@ -12593,10 +12960,11 @@ class ExternalAstroDataExportCard extends StatelessWidget {
         'score_aggregation': _scoreAggregation,
         'basis_note': 'scoreは${_scoreAggregation}です。日別の配置と点数はdaily_scores、年間の月別データはannual_monthsを参照してください。',
         'representative_transit_date_jst': _dateTimeJst(contextData.transit.date),
+        if (scoreBreakdown != null) 'score_breakdown': scoreBreakdown,
       };
 
   Map<String, Object?> _data() => {
-        'schema': 'pancyo_astrology_external_consult_v2',
+        'schema': 'pancyo_astrology_external_consult_v3',
         'generated_at': DateTime.now().toIso8601String(),
         'period': {
           'type': mode.name,
