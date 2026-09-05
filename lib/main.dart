@@ -32,8 +32,59 @@ String _slashDateWithWeekday(DateTime date) => '${date.year}/${date.month}/${dat
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await HouseSystemSettings.restore();
+  await TextScaleSettings.restore();
   await LegacyDataCleanup.removeFromPreviousVersions();
   runApp(const PancyoAstrologyApp());
+}
+
+/// アプリ内の文字サイズ設定。端末の文字拡大設定に追加する倍率として保存する。
+class TextScaleSettings {
+  TextScaleSettings._();
+
+  static const _storageKey = 'astrology.text_scale';
+  static const options = <double>[1.0, 1.15, 1.3];
+  static final ValueNotifier<double> current = ValueNotifier(options.first);
+
+  static double normalize(double value) {
+    var closest = options.first;
+    var distance = (value - closest).abs();
+    for (final candidate in options.skip(1)) {
+      final candidateDistance = (value - candidate).abs();
+      if (candidateDistance < distance) {
+        closest = candidate;
+        distance = candidateDistance;
+      }
+    }
+    return closest;
+  }
+
+  static String label(double value) {
+    switch (normalize(value)) {
+      case 1.15:
+        return '大きめ';
+      case 1.3:
+        return '特大';
+      default:
+        return '標準';
+    }
+  }
+
+  static Future<void> restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getDouble(_storageKey);
+      if (stored != null) current.value = normalize(stored);
+    } catch (_) {}
+  }
+
+  static Future<void> save(double value) async {
+    final normalized = normalize(value);
+    current.value = normalized;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_storageKey, normalized);
+    } catch (_) {}
+  }
 }
 
 /// 旧版の任意ダウンロードデータと、保存しない方針に変えた履歴だけを起動時に掃除する。
@@ -69,53 +120,69 @@ class PancyoAstrologyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final interactionOverlay = WidgetStateProperty.resolveWith<Color?>((states) {
-      if (states.contains(WidgetState.pressed)) {
-        return const Color(0xFFB8FFF5).withValues(alpha: 0.32);
-      }
-      if (states.contains(WidgetState.hovered) || states.contains(WidgetState.focused)) {
-        return const Color(0xFF57D6D1).withValues(alpha: 0.18);
-      }
-      return null;
-    });
-    return MaterialApp(
-      title: 'ぱんちょ式 超本格占星術占い',
-      debugShowCheckedModeBanner: false,
-      locale: const Locale('ja', 'JP'),
-      supportedLocales: const [
-        Locale('ja', 'JP'),
-      ],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      theme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF070713),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF57D6D1),
-          brightness: Brightness.dark,
-        ),
-        splashFactory: InkSparkle.splashFactory,
-        splashColor: const Color(0xFFB8FFF5).withValues(alpha: 0.26),
-        highlightColor: const Color(0xFF57D6D1).withValues(alpha: 0.22),
-        filledButtonTheme: FilledButtonThemeData(
-          style: ButtonStyle(overlayColor: interactionOverlay),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: ButtonStyle(overlayColor: interactionOverlay),
-        ),
-        textButtonTheme: TextButtonThemeData(
-          style: ButtonStyle(overlayColor: interactionOverlay),
-        ),
-        iconButtonTheme: IconButtonThemeData(
-          style: ButtonStyle(overlayColor: interactionOverlay),
-        ),
-        fontFamily: 'Roboto',
-      ),
-      home: const BirthInfoScreen(),
+    return ValueListenableBuilder<double>(
+      valueListenable: TextScaleSettings.current,
+      builder: (context, appScale, _) {
+        final interactionOverlay = WidgetStateProperty.resolveWith<Color?>((states) {
+          if (states.contains(WidgetState.pressed)) {
+            return const Color(0xFFB8FFF5).withValues(alpha: 0.32);
+          }
+          if (states.contains(WidgetState.hovered) || states.contains(WidgetState.focused)) {
+            return const Color(0xFF57D6D1).withValues(alpha: 0.18);
+          }
+          return null;
+        });
+        return MaterialApp(
+          title: 'ぱんちょ式 超本格占星術占い',
+          debugShowCheckedModeBanner: false,
+          locale: const Locale('ja', 'JP'),
+          supportedLocales: const [
+            Locale('ja', 'JP'),
+          ],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          theme: ThemeData(
+            useMaterial3: true,
+            brightness: Brightness.dark,
+            scaffoldBackgroundColor: const Color(0xFF070713),
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: const Color(0xFF57D6D1),
+              brightness: Brightness.dark,
+            ),
+            splashFactory: InkSparkle.splashFactory,
+            splashColor: const Color(0xFFB8FFF5).withValues(alpha: 0.26),
+            highlightColor: const Color(0xFF57D6D1).withValues(alpha: 0.22),
+            filledButtonTheme: FilledButtonThemeData(
+              style: ButtonStyle(overlayColor: interactionOverlay),
+            ),
+            outlinedButtonTheme: OutlinedButtonThemeData(
+              style: ButtonStyle(overlayColor: interactionOverlay),
+            ),
+            textButtonTheme: TextButtonThemeData(
+              style: ButtonStyle(overlayColor: interactionOverlay),
+            ),
+            iconButtonTheme: IconButtonThemeData(
+              style: ButtonStyle(overlayColor: interactionOverlay),
+            ),
+            fontFamily: 'Roboto',
+          ),
+          builder: (context, child) {
+            final mediaQuery = MediaQuery.of(context);
+            final systemScale = mediaQuery.textScaler.scale(14) / 14;
+            final effectiveScale = math.min(systemScale * appScale, 2.4);
+            return MediaQuery(
+              data: mediaQuery.copyWith(
+                textScaler: TextScaler.linear(effectiveScale),
+              ),
+              child: child ?? const SizedBox.shrink(),
+            );
+          },
+          home: const BirthInfoScreen(),
+        );
+      },
     );
   }
 }
@@ -16333,6 +16400,7 @@ class ProfileView extends StatelessWidget {
           initialDetails: details,
           onSaved: onSaved,
         ),
+        const TextScaleSelector(),
         const HouseSystemSelector(),
         ProfileAstroJsonExportCard(profile: profile, details: details),
         ProfileDataUtilityCard(profile: profile),
@@ -17057,6 +17125,63 @@ class HouseSystemSelector extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 selected.description,
+                style: const TextStyle(
+                  color: Color(0xFFF6D77A),
+                  fontSize: 12,
+                  height: 1.4,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class TextScaleSelector extends StatelessWidget {
+  const TextScaleSelector({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<double>(
+      valueListenable: TextScaleSettings.current,
+      builder: (context, selected, _) {
+        return GlassPanel(
+          margin: const EdgeInsets.only(top: 14),
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const _SmallSectionLabel(
+                icon: Icons.format_size_outlined,
+                text: '文字サイズ',
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '画面の文字を見やすく調整できます。大きくすると一部の画面は縦に長くなるため、必要に応じてスクロールしてください。',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.70),
+                  fontSize: 12,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SegmentedButton<double>(
+                segments: const [
+                  ButtonSegment<double>(value: 1.0, label: Text('標準')),
+                  ButtonSegment<double>(value: 1.15, label: Text('大きめ')),
+                  ButtonSegment<double>(value: 1.3, label: Text('特大')),
+                ],
+                selected: {TextScaleSettings.normalize(selected)},
+                onSelectionChanged: (values) {
+                  if (values.isNotEmpty) TextScaleSettings.save(values.first);
+                },
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '現在: ${TextScaleSettings.label(selected)}（端末の文字サイズ設定にも合わせて拡大します）',
                 style: const TextStyle(
                   color: Color(0xFFF6D77A),
                   fontSize: 12,
