@@ -8067,10 +8067,32 @@ class FortuneRuleService {
 
   bool _isPeriodFortuneQuestion(String question) {
     final value = question.replaceAll(RegExp(r'\s+'), '').toLowerCase();
-    const periodWords = ['今週', '来週', '今月', '来月', '今年', '来年', '1か月', '1ヶ月', '3か月', '3ヶ月', '半年', '6か月', '6ヶ月', '2年', '3年', '5年', '数年', '長期'];
+    const periodWords = [
+      '今週',
+      '来週',
+      '今月',
+      '来月',
+      '今年',
+      '来年',
+      '1か月',
+      '1ヶ月',
+      '3か月',
+      '3ヶ月',
+      '半年',
+      '6か月',
+      '6ヶ月',
+      '今後1年',
+      '1年',
+      '2年',
+      '3年',
+      '今後5年',
+      '5年',
+      '数年',
+      '長期',
+    ];
     const fortuneWords = [
       '運', '占い', 'どう', '良い', '悪い', '向いて', '始め', '続け', 'やめ', '成果',
-      '成功', '注意', 'チャンス', '転機', '飛躍',
+      '成功', '注意', 'チャンス', '転機', '飛躍', '時期', '動きやすい',
     ];
     return periodWords.any(value.contains) &&
         (fortuneWords.any(value.contains) || _questionTopic(value) != 'overall');
@@ -15951,7 +15973,18 @@ class _CustomReadingState extends State<CustomReading> {
               const SizedBox(height: 8),
               // 初回はナビを表示し、送信後は回答を広く見せる。
               if (_showNavigator) ...[
-                _consultationNavigator(isTablet),
+                // 小さい端末では選択チップが画面高を超えることがある。
+                // ナビ自体をスクロール可能な領域にし、下部の鑑定入力欄を
+                // 画面外へ押し出さない（Android 14端末での報告に対応）。
+                Flexible(
+                  fit: FlexFit.loose,
+                  child: isTablet
+                      ? _consultationNavigator(isTablet)
+                      : SingleChildScrollView(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: _consultationNavigator(isTablet),
+                        ),
+                ),
                 const SizedBox(height: 8),
               ],
               if (isTablet && chronologicalLogs.isEmpty && !_loading)
@@ -16073,11 +16106,13 @@ class _CustomReadingState extends State<CustomReading> {
     final period = _navigatorPeriod.label;
     if (!detailed) {
       return switch (_navigatorMode) {
-        ConsultationPromptMode.action => '今日の$topicで、今どう動くと良い？',
+        ConsultationPromptMode.action => '$periodの$topicで、今どう動くと良い？',
         ConsultationPromptMode.caution => '$dateLabelの$topicで、何に気をつけたらいい？',
-        ConsultationPromptMode.timing => '今後3か月で$topicが動きやすい時期は？',
+        // スマホでも選択した期間をそのまま質問へ反映する。
+        // 以前は常に「今後3か月」と表示していたため、選択肢との不一致が起きていた。
+        ConsultationPromptMode.timing => '$periodで$topicが動きやすい時期は？',
         ConsultationPromptMode.compare => '$topicで「今月始める」と「来月始める」は、どちらが良い？',
-        ConsultationPromptMode.longTerm => '今後5年の$topicの流れと、育てるべきことは？',
+        ConsultationPromptMode.longTerm => '$periodの$topicの流れと、育てるべきことは？',
       };
     }
     return switch (_navigatorMode) {
@@ -16095,6 +16130,28 @@ class _CustomReadingState extends State<CustomReading> {
         ConsultationPromptMode.timing => ConsultationPeriod.threeMonths,
         ConsultationPromptMode.compare => ConsultationPeriod.month,
         ConsultationPromptMode.longTerm => ConsultationPeriod.fiveYears,
+      };
+
+  List<ConsultationPeriod> _availablePeriodsFor(ConsultationPromptMode mode) => switch (mode) {
+        // 「良い時期」は短期のピークを探す機能。年単位は
+        // 「長期の流れ」で選ぶようにし、固定3か月に見える混乱を防ぐ。
+        ConsultationPromptMode.timing => const [
+            ConsultationPeriod.week,
+            ConsultationPeriod.month,
+            ConsultationPeriod.threeMonths,
+          ],
+        ConsultationPromptMode.caution => const [ConsultationPeriod.today],
+        ConsultationPromptMode.compare => const [ConsultationPeriod.month],
+        ConsultationPromptMode.longTerm => const [
+            ConsultationPeriod.year,
+            ConsultationPeriod.fiveYears,
+          ],
+        ConsultationPromptMode.action => const [
+            ConsultationPeriod.today,
+            ConsultationPeriod.week,
+            ConsultationPeriod.month,
+            ConsultationPeriod.threeMonths,
+          ],
       };
 
   Future<void> _selectNavigatorDate() async {
@@ -16123,6 +16180,7 @@ class _CustomReadingState extends State<CustomReading> {
 
   Widget _consultationNavigator(bool isTablet) {
     final preview = _navigatorQuestion(detailed: isTablet);
+    final availablePeriods = _availablePeriodsFor(_navigatorMode);
     final topicChips = Wrap(
       spacing: 6,
       runSpacing: 6,
@@ -16159,7 +16217,7 @@ class _CustomReadingState extends State<CustomReading> {
     final periodChips = Wrap(
       spacing: 6,
       runSpacing: 6,
-      children: ConsultationPeriod.values.map((period) => ChoiceChip(
+      children: availablePeriods.map((period) => ChoiceChip(
         label: Text(period.label),
         selected: _navigatorPeriod == period,
         onSelected: (_) => setState(() => _navigatorPeriod = period),
@@ -16222,6 +16280,17 @@ class _CustomReadingState extends State<CustomReading> {
             Text('対象期間', style: TextStyle(color: Colors.white.withValues(alpha: 0.72), fontSize: 12, fontWeight: FontWeight.w800)),
             const SizedBox(height: 5),
             periodChips,
+          ],
+          if (_navigatorMode == ConsultationPromptMode.timing) ...[
+            const SizedBox(height: 5),
+            Text(
+              '良い時期は短期（今週〜今後3か月）のピークを見ます。年単位の流れは「長期の流れ」を選んでください。',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.62),
+                fontSize: 11,
+                height: 1.35,
+              ),
+            ),
           ],
           if (_navigatorMode == ConsultationPromptMode.caution) ...[
             const SizedBox(height: 8),
