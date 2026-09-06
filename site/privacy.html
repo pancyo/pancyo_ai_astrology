@@ -7,14 +7,15 @@
     <title>プライバシーポリシー | ぱんちょ式 超本格占星術占い</title>
     <style>
       :root { color-scheme: dark; font-family: system-ui, -apple-system, "Noto Sans JP", sans-serif; }
-      *, *::before, *::after { box-sizing: border-box; }
-      body { margin: 0; min-height: 100vh; padding: 24px; box-sizing: border-box; background: radial-gradient(circle at 75% 8%, #5a348c 0, transparent 32%), linear-gradient(155deg, #05091d, #111337 58%, #231547); color: #f8f6ff; }
-      main { width: min(100%, 760px); margin: 0 auto; padding: 34px 28px; border: 1px solid #8c78c6; border-radius: 24px; background: rgba(8, 12, 42, .78); box-shadow: 0 22px 70px rgba(0, 0, 0, .46); }
+      *, *::before, *::after { box-sizing: border-box; min-width: 0; }
+      html { width: 100%; max-width: 100%; overflow-x: hidden; }
+      body { margin: 0; width: 100%; max-width: 100%; min-height: 100vh; padding: clamp(12px, 4vw, 24px); box-sizing: border-box; overflow-x: hidden; background: radial-gradient(circle at 75% 8%, #5a348c 0, transparent 32%), linear-gradient(155deg, #05091d, #111337 58%, #231547); color: #f8f6ff; }
+      main { width: 100%; max-width: 760px; min-width: 0; margin: 0 auto; padding: clamp(22px, 5vw, 34px) clamp(16px, 4vw, 28px); box-sizing: border-box; border: 1px solid #8c78c6; border-radius: 24px; background: rgba(8, 12, 42, .78); box-shadow: 0 22px 70px rgba(0, 0, 0, .46); }
       .eyebrow { color: #62e2dc; font-weight: 700; letter-spacing: .08em; }
       h1 { margin: 12px 0 26px; font-size: clamp(28px, 7vw, 40px); line-height: 1.25; }
       h2 { margin: 30px 0 8px; font-size: 20px; }
-      p, li { color: #ded9ef; line-height: 1.8; overflow-wrap: anywhere; }
-      a { color: #8deee9; overflow-wrap: anywhere; }
+      p, li { max-width: 100%; color: #ded9ef; line-height: 1.8; overflow-wrap: anywhere; word-break: break-word; }
+      a { max-width: 100%; color: #8deee9; overflow-wrap: anywhere; word-break: break-word; }
       .note { font-size: 14px; color: #bdb6d4; }
       .back { display: inline-block; margin-top: 28px; color: #071127; background: linear-gradient(135deg, #56d7d1, #5c79d1); padding: 12px 16px; border-radius: 12px; text-decoration: none; font-weight: 800; }
     </style>

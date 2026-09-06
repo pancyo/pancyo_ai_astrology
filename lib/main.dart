@@ -17895,7 +17895,7 @@ class CreatorProfileCard extends StatelessWidget {
                     _CreatorLinkButton(
                       icon: Icons.privacy_tip_outlined,
                       label: 'プライバシーポリシー',
-                      url: 'https://pancyo-astrology.netlify.app/privacy.html',
+                      url: 'https://pancyo-astrology.netlify.app/privacy.html?v=0.3.58',
                     ),
                   ],
                 ),
