@@ -2352,6 +2352,9 @@ Future<void> showFortuneShareComposer(
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
+    // The route removes top padding unless this is enabled, which can place
+    // the composer title underneath Android's status/notification bar.
+    useSafeArea: true,
     backgroundColor: const Color(0xFF11172F),
     builder: (_) => FortuneShareComposerSheet(
       periodLabel: periodLabel,
