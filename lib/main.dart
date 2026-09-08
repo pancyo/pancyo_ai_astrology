@@ -9867,19 +9867,50 @@ class DailyAstroEventsCard extends StatelessWidget {
   final DateTime date;
   final HoroscopeReadingContext contextData;
 
-  static const _verifiedStationRecords = <({AstroPlanet planet, int year, int month, int day, int hour, int minute, bool startsRetrograde})>[
-    // Swiss Ephemeris系の外部暦と照合したJST。近似計算で留を取り逃がす場合だけ補完する。
-    (planet: AstroPlanet.saturn, year: 2026, month: 7, day: 27, hour: 4, minute: 56, startsRetrograde: true),
-    (planet: AstroPlanet.saturn, year: 2026, month: 12, day: 11, hour: 8, minute: 31, startsRetrograde: false),
+  // Swiss Ephemeris系の外部暦と照合した2026年のUTC。近似計算で留を
+  // 取り逃がす場合だけ補完し、画面・スコア・JSONではJSTへ変換して
+  // 同じ確定時刻を使う。UTCで持つことで端末のタイムゾーンに依存しない。
+  // 2026年は火星の留がないため、対象外としている。
+  static final _verifiedStationRecords = <({AstroPlanet planet, DateTime timeUtc, bool startsRetrograde})>[
+    (planet: AstroPlanet.mercury, timeUtc: DateTime.utc(2026, 2, 26, 6, 48), startsRetrograde: true),
+    (planet: AstroPlanet.jupiter, timeUtc: DateTime.utc(2026, 3, 11, 3, 29), startsRetrograde: false),
+    (planet: AstroPlanet.mercury, timeUtc: DateTime.utc(2026, 3, 20, 19, 32), startsRetrograde: false),
+    (planet: AstroPlanet.pluto, timeUtc: DateTime.utc(2026, 5, 6, 15, 34), startsRetrograde: true),
+    (planet: AstroPlanet.mercury, timeUtc: DateTime.utc(2026, 6, 29, 17, 35), startsRetrograde: true),
+    (planet: AstroPlanet.neptune, timeUtc: DateTime.utc(2026, 7, 7, 10, 54), startsRetrograde: true),
+    (planet: AstroPlanet.mercury, timeUtc: DateTime.utc(2026, 7, 23, 22, 57), startsRetrograde: false),
+    (planet: AstroPlanet.saturn, timeUtc: DateTime.utc(2026, 7, 26, 19, 56), startsRetrograde: true),
+    (planet: AstroPlanet.uranus, timeUtc: DateTime.utc(2026, 9, 10, 18, 27), startsRetrograde: true),
+    (planet: AstroPlanet.venus, timeUtc: DateTime.utc(2026, 10, 3, 7, 15), startsRetrograde: true),
+    (planet: AstroPlanet.pluto, timeUtc: DateTime.utc(2026, 10, 16, 2, 40), startsRetrograde: false),
+    (planet: AstroPlanet.mercury, timeUtc: DateTime.utc(2026, 10, 24, 7, 12), startsRetrograde: true),
+    (planet: AstroPlanet.mercury, timeUtc: DateTime.utc(2026, 11, 13, 15, 53), startsRetrograde: false),
+    (planet: AstroPlanet.venus, timeUtc: DateTime.utc(2026, 11, 13, 0, 27), startsRetrograde: false),
+    (planet: AstroPlanet.saturn, timeUtc: DateTime.utc(2026, 12, 10, 23, 31), startsRetrograde: false),
+    (planet: AstroPlanet.neptune, timeUtc: DateTime.utc(2026, 12, 12, 22, 17), startsRetrograde: false),
+    (planet: AstroPlanet.jupiter, timeUtc: DateTime.utc(2026, 12, 13, 0, 56), startsRetrograde: true),
+  ];
+
+  static final _verifiedRetrogradeWindows = <({AstroPlanet planet, DateTime startUtc, DateTime endUtc})>[
+    (planet: AstroPlanet.mercury, startUtc: DateTime.utc(2026, 2, 26, 6, 48), endUtc: DateTime.utc(2026, 3, 20, 19, 32)),
+    (planet: AstroPlanet.mercury, startUtc: DateTime.utc(2026, 6, 29, 17, 35), endUtc: DateTime.utc(2026, 7, 23, 22, 57)),
+    (planet: AstroPlanet.mercury, startUtc: DateTime.utc(2026, 10, 24, 7, 12), endUtc: DateTime.utc(2026, 11, 13, 15, 53)),
+    (planet: AstroPlanet.venus, startUtc: DateTime.utc(2026, 10, 3, 7, 15), endUtc: DateTime.utc(2026, 11, 13, 0, 27)),
+    (planet: AstroPlanet.jupiter, startUtc: DateTime.utc(2026, 12, 13, 0, 56), endUtc: DateTime.utc(2027, 4, 13, 2, 11)),
+    (planet: AstroPlanet.saturn, startUtc: DateTime.utc(2026, 7, 26, 19, 56), endUtc: DateTime.utc(2026, 12, 10, 23, 31)),
+    (planet: AstroPlanet.uranus, startUtc: DateTime.utc(2026, 9, 10, 18, 27), endUtc: DateTime.utc(2027, 2, 8, 12, 29)),
+    (planet: AstroPlanet.neptune, startUtc: DateTime.utc(2026, 7, 7, 10, 54), endUtc: DateTime.utc(2026, 12, 12, 22, 17)),
+    (planet: AstroPlanet.pluto, startUtc: DateTime.utc(2026, 5, 6, 15, 34), endUtc: DateTime.utc(2026, 10, 16, 2, 40)),
   ];
 
   /// 端末内の近似計算で留直後の遅い惑星を取り逃がす場合に補う、
-  /// 外部暦で照合済みの逆行期間。日時はJST。
+  /// 外部暦で照合済みの逆行期間。判定はUTCで行い、表示はJSTにする。
   static Set<AstroPlanet> verifiedRetrogradesAt(DateTime date) {
     final result = <AstroPlanet>{};
-    if (!date.isBefore(DateTime(2026, 7, 27, 4, 56)) &&
-        date.isBefore(DateTime(2026, 12, 11, 8, 31))) {
-      result.add(AstroPlanet.saturn);
+    for (final window in _verifiedRetrogradeWindows) {
+      if (!date.toUtc().isBefore(window.startUtc) && date.toUtc().isBefore(window.endUtc)) {
+        result.add(window.planet);
+      }
     }
     return result;
   }
@@ -9985,14 +10016,28 @@ class DailyAstroEventsCard extends StatelessWidget {
           : '切替直後は急いで結論を出さず、方針を見直す';
       events.add('${_time(station)}頃　${planet.label}$label：$action');
     }
-    // Moshierの近似計算では、非常に遅い土星の留が分単位の差分で
-    // 判定不能になる端末がある。外部暦で照合した確定時刻は補助表で
-    // 補完し、画面・総合運・JSONのすべてで同じイベントとして扱う。
+    // 近似計算が同じ日の留を誤検出した場合も、確定表を優先する。
+    // 先に該当天体の近似イベントを除いてから、画面・総合運・JSONの
+    // すべてで同じ確定イベントを使う。
+    final verifiedPlanetsOnRange = <AstroPlanet>{};
     for (final item in _verifiedStationRecords) {
-      final time = DateTime(item.year, item.month, item.day, item.hour, item.minute);
-      if (time.isBefore(start) || !time.isBefore(end) || events.any((event) => event.contains(item.planet.label))) continue;
+      final time = item.timeUtc;
+      if (!time.isBefore(start) && time.isBefore(end)) verifiedPlanetsOnRange.add(item.planet);
+    }
+    if (verifiedPlanetsOnRange.isNotEmpty) {
+      events.removeWhere(
+        (event) => verifiedPlanetsOnRange.any((planet) => event.contains(planet.label)),
+      );
+    }
+    // 外部暦で照合した確定時刻を補完する。
+    for (final item in _verifiedStationRecords) {
+      final time = item.timeUtc;
+      if (time.isBefore(start) || !time.isBefore(end)) continue;
       final label = item.startsRetrograde ? '逆行開始（留）' : '逆行終了（留）';
-      events.add('${_time(time)}頃　${item.planet.label}$label：切替直後は急いで結論を出さず、方針を見直す');
+      final action = item.planet == AstroPlanet.mercury
+          ? '連絡・契約・文章は仕上げと最終確認を優先'
+          : '切替直後は急いで結論を出さず、方針を見直す';
+      events.add('${_time(time)}頃　${item.planet.label}$label：$action');
     }
     events.sort();
     return events;
