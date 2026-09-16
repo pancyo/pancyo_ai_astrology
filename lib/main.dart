@@ -200,12 +200,34 @@ class _BirthInfoScreenState extends State<BirthInfoScreen> {
   UserProfileDetails _selectedDetails = const UserProfileDetails.empty();
   SavedUserProfile? _activeSavedProfile;
   late Future<List<SavedUserProfile>> _savedProfilesFuture;
+  bool _initialProfileSelectionMade = false;
   String _theme = '仕事';
 
   @override
   void initState() {
     super.initState();
-    _savedProfilesFuture = SavedUserProfile.loadAll();
+    final profilesFuture = SavedUserProfile.loadAll();
+    _savedProfilesFuture = profilesFuture;
+    unawaited(_restoreLatestSavedProfile(profilesFuture));
+  }
+
+  Future<void> _restoreLatestSavedProfile(
+    Future<List<SavedUserProfile>> profilesFuture,
+  ) async {
+    try {
+      final profiles = await profilesFuture;
+      if (!mounted || _initialProfileSelectionMade || profiles.isEmpty) return;
+      final saved = profiles.first;
+      setState(() {
+        _nameController.text = saved.name;
+        _birthDateController.text = saved.birthDate;
+        _selectedDetails = saved.details;
+        _activeSavedProfile = saved;
+        _initialProfileSelectionMade = true;
+      });
+    } catch (_) {
+      // The picker still shows its normal error state through FutureBuilder.
+    }
   }
 
   @override
@@ -267,6 +289,7 @@ class _BirthInfoScreenState extends State<BirthInfoScreen> {
     setState(() {
       _selectedDetails = saved.details;
       _activeSavedProfile = saved;
+      _initialProfileSelectionMade = true;
       _savedProfilesFuture = SavedUserProfile.loadAll();
     });
   }
@@ -281,6 +304,7 @@ class _BirthInfoScreenState extends State<BirthInfoScreen> {
   void _startNewProfile() {
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
+      _initialProfileSelectionMade = true;
       _nameController.clear();
       _birthDateController.clear();
       _selectedDetails = const UserProfileDetails.empty();
@@ -291,6 +315,7 @@ class _BirthInfoScreenState extends State<BirthInfoScreen> {
 
   void _applySavedProfile(SavedUserProfile saved) {
     setState(() {
+      _initialProfileSelectionMade = true;
       _nameController.text = saved.name;
       _birthDateController.text = saved.birthDate;
       _selectedDetails = saved.details;
@@ -303,6 +328,7 @@ class _BirthInfoScreenState extends State<BirthInfoScreen> {
   }
 
   void _detachSavedProfileIfIdentityChanged() {
+    _initialProfileSelectionMade = true;
     final active = _activeSavedProfile;
     if (active == null) return;
     final unchanged = _nameController.text.trim() == active.name.trim() &&
@@ -560,7 +586,9 @@ class _InputPanel extends StatelessWidget {
           TextButton.icon(
             onPressed: onStart,
             icon: const Icon(Icons.arrow_forward, size: 18),
-            label: const Text('サンプルで試す'),
+            label: Text(
+              activeSavedProfile == null ? 'サンプルで試す' : 'このプロフィールで占う',
+            ),
             style: TextButton.styleFrom(foregroundColor: Colors.white),
           ),
         ],
