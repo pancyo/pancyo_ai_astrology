@@ -89,7 +89,7 @@ class DailyStarTimelineShareData {
       '${plan.targetDateJst.replaceAll('-', '')}_${issued.toUtc().microsecondsSinceEpoch}.png';
   String get voidLabel => voidMoon == null
       ? 'この日の計算で月ボイドの情報はありません。'
-      : '黄帯：月ボイド ${_shareEventTime(voidMoon!.startTime, plan)}〜'
+      : 'ハイライト帯：月ボイド ${_shareEventTime(voidMoon!.startTime, plan)}〜'
             '${_shareEventTime(voidMoon!.endTime, plan)}（JST）';
 
   String displayVoidLabel(AppStrings strings) {
@@ -97,7 +97,7 @@ class DailyStarTimelineShareData {
     if (voidMoon == null) return strings.text(AppText.timelineNoVoidInfo);
     String time(DateTime value) =>
         _shareEventTime(value, plan).replaceAll('（翌日0時）', ' (00:00 next day)');
-    return 'Yellow band: void-of-course Moon ${time(voidMoon!.startTime)}–${time(voidMoon!.endTime)} (JST)';
+    return 'Highlighted band: void-of-course Moon ${time(voidMoon!.startTime)}–${time(voidMoon!.endTime)} (JST)';
   }
 }
 

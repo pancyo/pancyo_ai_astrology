@@ -203,6 +203,19 @@ String? _englishGeneratedAstrologyDetail(String source, int depth) {
 
   // These compact fields are generated from typed placements; preserve all
   // degrees, signs, houses and ingress date/time while translating labels.
+  // An authored explanation follows a placement with another colon. Translate
+  // that exact known suffix before ingress parsing can mistake it for timing.
+  final detailSeparator = source.lastIndexOf(': ');
+  if (detailSeparator > 0) {
+    final explanation = _fixed[source.substring(detailSeparator + 2)];
+    if (explanation != null) {
+      final placement = _translate(
+        source.substring(0, detailSeparator),
+        depth + 1,
+      );
+      if (!_japanese.hasMatch(placement)) return '$placement: $explanation';
+    }
+  }
   final ingress = RegExp(
     r'^(太陽|月|水星|金星|火星|木星|土星|天王星|海王星|冥王星): (牡羊座|牡牛座|双子座|蟹座|獅子座|乙女座|天秤座|蠍座|射手座|山羊座|水瓶座|魚座)(?: (\d+(?:\.\d+)?)°)?(?: → (牡羊座|牡牛座|双子座|蟹座|獅子座|乙女座|天秤座|蠍座|射手座|山羊座|水瓶座|魚座)(?: (.+))?)?$',
   ).firstMatch(source);

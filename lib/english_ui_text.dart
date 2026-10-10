@@ -257,6 +257,8 @@ String? _englishAstrologyEngineValue(String source) {
 // Fixed copy verified in the native English QA follow-up. Keep this exact-match
 // table presentation-only; names, places, dates, and generated prose stay raw.
 const Map<String, String> _nativeFollowupEnglishOverrides = {
+  '月が次の星座へ入る前の空白時間。新規決定より見直し、休息、準備向き。':
+      'A pause before the Moon enters the next sign. Favor review, rest and preparation over new decisions.',
   '西洋占星術のホロスコープであなたの本質を読み解きます。':
       'Explore your personality through a Western astrology chart.',
   '今日の星の動きから運勢の流れをお届けします。':

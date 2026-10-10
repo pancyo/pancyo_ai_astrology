@@ -132,6 +132,180 @@ void main() {
     AppLanguageSettings.current.value = AppLanguage.ja;
   });
 
+  const voidGuidance = '月が次の星座へ入る前の空白時間。新規決定より見直し、休息、準備向き。';
+  const englishVoidGuidance =
+      'A pause before the Moon enters the next sign. Favor review, rest and preparation over new decisions.';
+  final voidPeriod = VoidMoonPeriod(
+    start: '09:15',
+    end: '10:45',
+    startTime: DateTime.utc(2026, 10, 2, 0, 15),
+    endTime: DateTime.utc(2026, 10, 2, 1, 45),
+    guidance: voidGuidance,
+  );
+
+  for (final language in AppLanguage.values) {
+    for (final width in [360.0, 800.0]) {
+      testWidgets('void notice ${language.name} at width $width', (
+        tester,
+      ) async {
+        tester.view.physicalSize = Size(width, 600);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        AppLanguageSettings.current.value = language;
+        await tester.pumpWidget(_host(VoidTimeNotice(period: voidPeriod)));
+
+        expect(
+          find.text(
+            language == AppLanguage.en ? englishVoidGuidance : voidGuidance,
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('09:15 - 10:45'), findsOneWidget);
+        expect(voidPeriod.guidance, voidGuidance);
+        expect(voidPeriod.startTime, DateTime.utc(2026, 10, 2, 0, 15));
+        expect(voidPeriod.endTime, DateTime.utc(2026, 10, 2, 1, 45));
+        expect(tester.takeException(), isNull);
+
+        await tester.pumpWidget(_host(const VoidTimeNotice(period: null)));
+        expect(find.text('09:15 - 10:45'), findsNothing);
+        expect(find.text(englishVoidGuidance), findsNothing);
+        expect(find.text(voidGuidance), findsNothing);
+      });
+    }
+
+    testWidgets(
+      'share void caption follows colored theme in ${language.name}',
+      (tester) async {
+        final noon = DateTime.utc(2026, 10, 2, 3);
+        final base = const AstrologyEngine().buildPreviewContext(
+          profile: _profile,
+          date: noon,
+        );
+        final contextData = HoroscopeReadingContext(
+          natal: base.natal,
+          transit: TransitChart(
+            date: base.transit.date,
+            placements: base.transit.placements,
+            voidMoon: voidPeriod,
+          ),
+          nextTransitPlacements: base.nextTransitPlacements,
+          aspects: base.aspects,
+          fullAspects: base.fullAspects,
+          nextAspects: base.nextAspects,
+          transitPairAspects: base.transitPairAspects,
+          retrogradePlanets: base.retrogradePlanets,
+          houseTransits: base.houseTransits,
+          returns: base.returns,
+          birthPlace: base.birthPlace,
+          ephemerisSourceName: base.ephemerisSourceName,
+          ephemerisPrecisionNotice: base.ephemerisPrecisionNotice,
+          usesHighPrecisionAstroData: base.usesHighPrecisionAstroData,
+          houseSystem: base.houseSystem,
+          houseCusps: base.houseCusps,
+        );
+        final request = DailyStarTimelineRequest.fromContext(
+          date: noon,
+          contextData: contextData,
+          profile: _profile,
+        );
+        final result = calculateDailyStarTimeline(request);
+        final data = DailyStarTimelineShareData.checked(
+          request: request,
+          result: result,
+        );
+        AppLanguageSettings.current.value = language;
+        await tester.pumpWidget(
+          _host(
+            DailyStarTimelineShareImageCard(
+              data: data,
+              theme: FortuneShareTheme.catFlower,
+            ),
+          ),
+        );
+        final caption = language == AppLanguage.en
+            ? 'Highlighted band: void-of-course Moon 09:15–10:45 (JST)'
+            : 'ハイライト帯：月ボイド 09:15〜10:45（JST）';
+        expect(find.text(caption), findsOneWidget);
+        expect(find.textContaining('Yellow band'), findsNothing);
+        expect(find.textContaining('黄帯'), findsNothing);
+        final painter = tester
+            .widgetList<CustomPaint>(find.byType(CustomPaint))
+            .map((widget) => widget.painter)
+            .whereType<DailyStarTimeBarPainter>()
+            .single;
+        expect(painter.voidColor, FortuneShareTheme.catFlower.palette.score);
+        expect(painter.voidMoon, same(voidPeriod));
+        expect(data.voidMoon, same(voidPeriod));
+        for (var i = 0; i < data.points.length; i++) {
+          expect(data.points[i].degree, result.points[i].moon.degree);
+          expect(data.points[i].birthHouse, result.points[i].moon.house);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  for (final language in AppLanguage.values) {
+    testWidgets('legacy current details preserve ingress dates in ${language.name}', (
+      tester,
+    ) async {
+      AppLanguageSettings.current.value = language;
+      const current =
+          '現在: 金星: 蠍座 7.3° → 天秤座 10/11(日) 12:00 / 月: 天秤座 23.4° → 蠍座 10/12(月) 08:15 / 木星: 獅子座 21.3° / 水星: 蠍座 2.1°';
+      await tester.pumpWidget(
+        _host(
+          const LongFortuneEvidencePanel(
+            current: current,
+            transitHouse: '金星 第7ハウス / 月 第6ハウス',
+            natal: '金星 第10ハウス',
+            correction: '現在の金星 セクスタイル 出生図の月',
+          ),
+        ),
+      );
+      final details = find
+          .text(language == AppLanguage.en ? 'Details' : '詳しく')
+          .first;
+      await tester.ensureVisible(details);
+      await tester.tap(details);
+      await tester.pumpAndSettle();
+      for (final line
+          in language == AppLanguage.en
+              ? [
+                  'Venus: Scorpio 7.3° → Libra 10/11 (Sun) 12:00: Preferences, affection and use of money',
+                  'Moon: Libra 23.4° → Scorpio 10/12 (Mon) 08:15: Mood, security and daily condition',
+                  'Jupiter: Leo 21.3°: Expansion, opportunities and growth',
+                  'Mercury: Scorpio 2.1°: Decisions, messages, words and learning',
+                ]
+              : [
+                  '金星: 蠍座 7.3° → 天秤座 10/11(日) 12:00: 好み、愛情、お金の使い方',
+                  '月: 天秤座 23.4° → 蠍座 10/12(月) 08:15: 気分、安心感、日々のコンディション',
+                  '木星: 獅子座 21.3°: 拡大、チャンス、増える流れ',
+                  '水星: 蠍座 2.1°: 判断、連絡、言葉、学び',
+                ]) {
+        final displayed = find.text(line);
+        await tester.ensureVisible(displayed);
+        await tester.pumpAndSettle();
+        expect(displayed, findsOneWidget);
+      }
+      if (language == AppLanguage.en) {
+        expect(
+          find.textContaining('Venus transiting natal House 7:'),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('Moon transiting natal House 6:'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Venus: Scorpio 7.3° → Libra 10: 好み、愛情、お金の使い方'),
+          findsNothing,
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets(
     'engine summary translates known values but preserves entered place',
     (tester) async {

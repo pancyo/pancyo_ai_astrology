@@ -3902,20 +3902,20 @@ class _VoidTimeHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Wrap(
+      spacing: 8,
+      runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         const Icon(
           Icons.hourglass_bottom_outlined,
           size: 17,
           color: Color(0xFFF6D77A),
         ),
-        const SizedBox(width: 8),
         const EnglishUiText(
           'ボイドタイム',
           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
         ),
-        const SizedBox(width: 8),
         Text(
           period.label,
           style: TextStyle(
@@ -3937,7 +3937,7 @@ class _VoidTimeBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
+    return EnglishUiText(
       period.guidance,
       maxLines: compact ? 2 : 1,
       overflow: TextOverflow.ellipsis,
@@ -18239,7 +18239,8 @@ class _LongFortuneEvidencePanelState extends State<LongFortuneEvidencePanel> {
 
   List<String> _segments(String value) {
     return _clean(value)
-        .split(RegExp(r'[/、。]'))
+        // Slashes inside ingress dates are part of the displayed evidence.
+        .split(RegExp(r'\s+/\s+|[、。]'))
         .map((part) => part.trim())
         .where((part) => part.isNotEmpty)
         .toList();
