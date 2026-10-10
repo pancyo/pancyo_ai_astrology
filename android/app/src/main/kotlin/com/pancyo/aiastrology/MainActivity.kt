@@ -8,12 +8,95 @@ import android.content.pm.PackageManager
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
 class MainActivity : FlutterActivity() {
+    private var manualBgmPlayer: ManualBgmPlayer? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        manualBgmPlayer?.dispose()
+        val bgmPlayer = ManualBgmPlayer(this)
+        manualBgmPlayer = bgmPlayer
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            ManualBgmPlayer.METHOD_CHANNEL,
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "play" -> {
+                    val arguments = call.arguments as? Map<*, *>
+                    if (arguments?.get("loop") != true) {
+                        result.success(bgmPlayer.invalidRequest("loop_required"))
+                    } else {
+                        result.success(bgmPlayer.play(loop = true))
+                    }
+                }
+                "stop" -> result.success(bgmPlayer.stop())
+                "setVolume" -> {
+                    val arguments = call.arguments as? Map<*, *>
+                    val rawValue = arguments?.get("value") as? Number
+                    val value = rawValue?.toDouble()
+                    if (value == null || value.isNaN() || value.isInfinite()) {
+                        result.success(bgmPlayer.invalidRequest("invalid_volume"))
+                    } else if (value !in 0.0..1.0) {
+                        result.success(bgmPlayer.invalidRequest("volume_out_of_range"))
+                    } else {
+                        result.success(bgmPlayer.setVolume(value))
+                    }
+                }
+                "getState" -> result.success(bgmPlayer.getState())
+                else -> result.notImplemented()
+            }
+        }
+        EventChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            ManualBgmPlayer.EVENT_CHANNEL,
+        ).setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                bgmPlayer.setEventSink(events)
+            }
+
+            override fun onCancel(arguments: Any?) {
+                bgmPlayer.setEventSink(null)
+            }
+        })
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.pancyo.aiastrology/civil_time",
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "resolveLocal" && call.method != "formatInstant") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            try {
+                val arguments = call.arguments as? Map<*, *>
+                    ?: throw IllegalArgumentException("Missing civil clock arguments")
+                val zoneId = arguments["zoneId"] as? String
+                    ?: throw IllegalArgumentException("Missing region ID")
+                val value = if (call.method == "resolveLocal") {
+                    CivilTimeResolver.resolveLocal(
+                        zoneId,
+                        arguments["localDate"] as? String
+                            ?: throw IllegalArgumentException("Missing civil date"),
+                        arguments["localTime"] as? String
+                            ?: throw IllegalArgumentException("Missing civil time"),
+                    )
+                } else {
+                    CivilTimeResolver.formatInstant(
+                        zoneId,
+                        arguments["instantUtc"] as? String
+                            ?: throw IllegalArgumentException("Missing UTC instant"),
+                    )
+                }
+                result.success(value)
+            } catch (_: IllegalArgumentException) {
+                result.error("invalid_civil_time", "Invalid region or civil clock input.", null)
+            } catch (_: java.time.DateTimeException) {
+                result.error("civil_time_unavailable", "Regional clock rules are unavailable.", null)
+            }
+        }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.pancyo.aiastrology/device_memory",
@@ -88,5 +171,16 @@ class MainActivity : FlutterActivity() {
                 result.error("share_compat_failed", error.message, null)
             }
         }
+    }
+
+    override fun onPause() {
+        manualBgmPlayer?.stop()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        manualBgmPlayer?.dispose()
+        manualBgmPlayer = null
+        super.onDestroy()
     }
 }

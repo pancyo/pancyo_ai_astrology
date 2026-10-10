@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdint.h>
 
 #include "swephexp.h"
 
@@ -33,6 +34,42 @@ PANCYO_EXPORT double pancyo_swe_planet_longitude_ut(double julian_day_ut, int pl
     return NAN;
   }
   return pancyo_norm360(result[0]);
+}
+
+// v1 is an owned return-by-value result. The ten calls below are deliberately
+// the existing scalar wrapper in its original order, flags and normalization.
+typedef struct {
+  uint32_t abi_version;
+  uint32_t count;
+  uint32_t status;
+  uint32_t reserved;
+  double longitudes[10];
+} PancyoPlanetLongitudesV1;
+
+PANCYO_EXPORT uint32_t pancyo_swe_planet_longitudes_v1_result_size(void) {
+  return (uint32_t)sizeof(PancyoPlanetLongitudesV1);
+}
+
+PANCYO_EXPORT PancyoPlanetLongitudesV1 pancyo_swe_planet_longitudes_v1_ut(
+    double julian_day_ut) {
+  PancyoPlanetLongitudesV1 result = {1, 0, 0, 0, {0}};
+  for (int index = 0; index < 10; index++) {
+    result.longitudes[index] = NAN;
+  }
+  if (!isfinite(julian_day_ut)) {
+    result.status = 11;
+    return result;
+  }
+  for (int index = 0; index < 10; index++) {
+    const double value = pancyo_swe_planet_longitude_ut(julian_day_ut, index);
+    if (!isfinite(value)) {
+      result.status = (uint32_t)index + 1;
+      return result;
+    }
+    result.longitudes[index] = value;
+    result.count = (uint32_t)index + 1;
+  }
+  return result;
 }
 
 PANCYO_EXPORT double pancyo_swe_ascendant_ut(

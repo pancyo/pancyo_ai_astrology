@@ -11,6 +11,7 @@ add_library(
     pancyo_sweph
     SHARED
     pancyo_sweph_bridge.c
+    pancyo_sweph_event_sample.c
     "${SWISSEPH_DIR}/swedate.c"
     "${SWISSEPH_DIR}/swehouse.c"
     "${SWISSEPH_DIR}/swejpl.c"

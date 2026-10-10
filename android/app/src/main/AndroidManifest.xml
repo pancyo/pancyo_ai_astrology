@@ -1,6 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="ぱんちょ式星占い"
+        android:label="${pancyoAppLabel}"
+        android:testOnly="${pancyoTestOnly}"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
