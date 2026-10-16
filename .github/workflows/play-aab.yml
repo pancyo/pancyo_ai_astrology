@@ -1,4 +1,4 @@
-name: M4 production AAB candidate (artifact only)
+name: Monthly seven-point closed-test candidate (artifact only)
 
 on:
   workflow_dispatch:
@@ -39,10 +39,11 @@ jobs:
           set -euo pipefail
           version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n 1)"
           code="${version##*+}"
-          if [[ ! "$code" =~ ^[0-9]+$ ]] || (( code <= 87 )); then
+          if [[ ! "$code" =~ ^[0-9]+$ ]] || (( code != 90 )); then
             echo 'versionCode must be greater than the last verified production code.' >&2
             exit 1
           fi
+          test "$version" = '0.3.63+90'
           grep -Fq 'else "com.pancyo.aiastrology"' android/app/build.gradle.kts
           if grep -Fq 'LegacyDataCleanup.removeFromPreviousVersions()' lib/main.dart; then
             echo 'Refusing to build while startup cleanup can delete existing user data.' >&2
@@ -61,13 +62,20 @@ jobs:
       - name: Verify data preservation and English display contracts
         shell: bash
         run: |
-          flutter test --no-pub --reporter=expanded \
+          flutter test --no-pub --concurrency=1 --reporter=expanded \
             test/production_update_preservation_test.dart \
             test/profile_save_roundtrip_test.dart \
             test/app_backup_restore_validation_test.dart \
             test/app_backup_restore_failure_test.dart \
             test/production_legacy_backup_compatibility_test.dart \
-            test/production_guide_engine_language_test.dart
+            test/production_guide_engine_language_test.dart \
+            test/natal_themes_english_test.dart \
+            test/monthly_daily_consult_export_test.dart \
+            test/monthly_daily_consult_export_ui_test.dart \
+            test/weekly_daily_consult_export_test.dart \
+            test/weekly_daily_consult_export_ui_test.dart \
+            test/daily_consult_export_lifecycle_test.dart \
+            test/period_consult_month_lifecycle_test.dart
 
       - name: Prepare temporary upload signing material
         shell: bash
@@ -128,7 +136,7 @@ jobs:
       - name: Save candidate as a CI artifact only
         uses: actions/upload-artifact@v4
         with:
-          name: m4-production-aab-candidate
+          name: closed-monthly-seven-v90
           path: |
             build/app/outputs/bundle/release/app-release.aab
             build/app/outputs/bundle/release/SHA256SUMS

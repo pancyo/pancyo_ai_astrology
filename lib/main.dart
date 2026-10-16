@@ -64,6 +64,9 @@ part 'daily_consult_intraday.dart';
 part 'daily_intraday_scores.dart';
 part 'daily_intraday_native_check.dart';
 part 'daily_consult_export_dialog.dart';
+part 'monthly_daily_consult_export.dart';
+part 'monthly_daily_consult_export_dialog.dart';
+part 'monthly_daily_consult_file_writer.dart';
 part 'weekly_daily_consult_export.dart';
 part 'weekly_daily_consult_export_dialog.dart';
 part 'app_language_selector.dart';
@@ -21450,6 +21453,7 @@ class ProfileAstroJsonExportCard extends StatefulWidget {
     this.startMonthlyJob,
     this.startYearJob,
     this.startWeeklyJob,
+    this.startMonthlyDailyJob,
   });
   final AstroProfile profile;
   final UserProfileDetails details;
@@ -21457,6 +21461,7 @@ class ProfileAstroJsonExportCard extends StatefulWidget {
   final PeriodConsultExportStarter? startMonthlyJob;
   final PeriodConsultExportStarter? startYearJob;
   final WeeklyDailyConsultExportStarter? startWeeklyJob;
+  final MonthlyDailyConsultExportStarter? startMonthlyDailyJob;
 
   @override
   State<ProfileAstroJsonExportCard> createState() =>
@@ -21469,6 +21474,7 @@ class _ProfileAstroJsonExportCardState
   final _monthlyOwner = MonthlyConsultExportOwner();
   final _yearOwner = MonthlyConsultExportOwner();
   final _weeklyOwner = WeeklyDailyConsultExportOwner();
+  final _monthlyDailyOwner = MonthlyDailyConsultExportOwner();
   late DateTime _selectedDay;
   late DateTime _selectedWeekStart;
   late DateTime _selectedMonth;
@@ -21493,6 +21499,11 @@ class _ProfileAstroJsonExportCardState
             _dailyConsultOwnerInput(widget.profile, widget.details) ||
         oldWidget.startWeeklyJob != widget.startWeeklyJob)
       _weeklyOwner.invalidate();
+    if (_dailyConsultOwnerInput(oldWidget.profile, oldWidget.details) !=
+        _dailyConsultOwnerInput(widget.profile, widget.details) ||
+        oldWidget.startMonthlyDailyJob != widget.startMonthlyDailyJob) {
+      _monthlyDailyOwner.invalidate();
+    }
   }
 
   @override
@@ -21501,6 +21512,7 @@ class _ProfileAstroJsonExportCardState
     _monthlyOwner.dispose();
     _yearOwner.dispose();
     _weeklyOwner.dispose();
+    _monthlyDailyOwner.dispose();
     super.dispose();
   }
 
@@ -21582,6 +21594,7 @@ class _ProfileAstroJsonExportCardState
     if (selected != null && mounted) {
       setState(() => _selectedMonth = DateTime(selected.year, selected.month));
       _monthlyOwner.invalidate();
+      _monthlyDailyOwner.invalidate();
     }
   }
 
@@ -21638,6 +21651,13 @@ class _ProfileAstroJsonExportCardState
       startJob: widget.startWeeklyJob,
     );
   }
+
+  Future<void> _monthlyDaily() => _exportMonthlyDailyConsultJson(
+    context,
+    startDate: DateTime.utc(_selectedMonth.year, _selectedMonth.month, 1, 3),
+    profile: widget.profile, details: widget.details, owner: _monthlyDailyOwner,
+    startJob: widget.startMonthlyDailyJob,
+  );
 
   Future<void> _period(LongRangeMode mode) {
     final month = DateTime(_selectedMonth.year, _selectedMonth.month, 1, 12);
@@ -21757,6 +21777,13 @@ class _ProfileAstroJsonExportCardState
                 onPressed: () => _period(LongRangeMode.month),
                 icon: const Icon(Icons.calendar_month_outlined, size: 18),
                 label: Text(strings.text(AppText.createMonthConsultData)),
+              ),
+              FilledButton.icon(
+                key: const ValueKey("consult-json-month-seven"),
+                onPressed: _monthlyDaily,
+                icon: const Icon(Icons.calendar_month_outlined, size: 18),
+                label: Text(_monthlyDailyExportText(strings.language,
+                  "月間7点式JSONを作る", "Create monthly 7-point JSON")),
               ),
             ],
           ),

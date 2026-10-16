@@ -74,7 +74,7 @@ String? _englishNatalProfileText(String source) {
   final positionPattern = RegExp(
     r'^(太陽|月|水星|金星|火星|木星|土星|天王星|海王星|冥王星|ASC|MC) (牡羊座|牡牛座|双子座|蟹座|獅子座|乙女座|天秤座|蠍座|射手座|山羊座|水瓶座|魚座)・第(\d+)ハウス$',
   );
-  if (source.contains(' / ') || positionPattern.hasMatch(source)) {
+  if (positionPattern.hasMatch(source.split(' / ').first)) {
     final entries = source.split(' / ');
     final translated = <String>[];
     for (final entry in entries) {
@@ -91,20 +91,34 @@ String? _englishNatalProfileText(String source) {
     return translated.join(' / ');
   }
 
-  final stellium = RegExp(
-    r'^第(\d+)ハウス集中: (.+?)が目立つ出生図です。星が集まるテーマを一点集中で磨くほど、人生の軸になります。$',
-  ).firstMatch(source);
-  if (stellium != null) {
-    final house = int.parse(stellium.group(1)!);
-    final names = stellium.group(2)!.split('・');
-    if (house < 1 ||
-        house > 12 ||
-        names.length < 3 ||
-        names.any((name) => !planets.containsKey(name))) {
-      return null;
+  const stelliumSuffix = 'が目立つ出生図です。星が集まるテーマを一点集中で磨くほど、人生の軸になります。';
+  if (source.endsWith(stelliumSuffix)) {
+    final entries = source
+        .substring(0, source.length - stelliumSuffix.length)
+        .split(' / ');
+    final stelliumPattern = RegExp(r'^第(\d+)ハウス集中: (.+)$');
+    final translated = <({int house, String planets})>[];
+    for (final entry in entries) {
+      final stellium = stelliumPattern.firstMatch(entry);
+      if (stellium == null) return null;
+      final house = int.tryParse(stellium.group(1)!);
+      final names = stellium.group(2)!.split('・');
+      if (house == null ||
+          house < 1 ||
+          house > 12 ||
+          names.length < 3 ||
+          names.any((name) => !planets.containsKey(name))) {
+        return null;
+      }
+      translated.add((
+        house: house,
+        planets: names.map((name) => planets[name]!).join(', '),
+      ));
     }
-    final translatedPlanets = names.map((name) => planets[name]!).join(', ');
-    return 'A stellium in House $house stands out in your birth chart: $translatedPlanets. Focusing deeply on the shared theme may help it become a guiding part of your life.';
+    final emphasis = translated.length == 1
+        ? 'A stellium in House ${translated.single.house} stands out in your birth chart: ${translated.single.planets}'
+        : 'Stelliums stand out in your birth chart: ${translated.map((entry) => 'House ${entry.house}: ${entry.planets}').join(' / ')}';
+    return '$emphasis. Focusing deeply on the shared theme may help it become a guiding part of your life.';
   }
   return null;
 }
@@ -621,6 +635,11 @@ final Map<String, String> _appLanguageText = {
 /// translated. The relationship entries describe a research-copy screen and
 /// do not establish that it is in the protected public release.
 const Map<String, String> _englishUiOverrides = {
+  // Natal profile themes without a stellium.
+  'グランドトラインを土台にしたカイトがあり、得意なことを外へ向けて動かすほど、才能が実用的な成果につながりやすい出生図です。':
+      'Your birth chart has a kite built on a grand trine. Putting your strengths into action in the world may help turn your talents into practical results.',
+  '一つだけの型に決めつけず、経験しながら自分に合う役割を選び直せる出生図です。大事な時ほど、得意・疲れにくさ・続けられるかの三つで選ぶとぶれにくくなります。':
+      'Your birth chart leaves room to explore different roles and choose what suits you through experience. For important decisions, consider your strengths, what feels less draining, and what you can sustain.',
   // Profile entry and saved-profile picker.
   '出生データを入力': 'Enter birth details',
   '新しい人物を入力': 'Add a new person',
