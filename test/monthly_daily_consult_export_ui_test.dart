@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pancyo_ai_astrology/app_language.dart';
 import 'package:pancyo_ai_astrology/app_language_settings.dart';
 import 'package:pancyo_ai_astrology/main.dart';
-import 'daily_star_timeline_test.dart' as f;
+import 'monthly_daily_consult_export_test.dart' as f;
 
 class ControlledMonth implements MonthlyDailyConsultExportOperation {
   final completer = Completer<MonthlyDailyConsultExportResult>();

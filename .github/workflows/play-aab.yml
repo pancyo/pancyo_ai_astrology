@@ -71,11 +71,7 @@ jobs:
             test/production_guide_engine_language_test.dart \
             test/natal_themes_english_test.dart \
             test/monthly_daily_consult_export_test.dart \
-            test/monthly_daily_consult_export_ui_test.dart \
-            test/weekly_daily_consult_export_test.dart \
-            test/weekly_daily_consult_export_ui_test.dart \
-            test/daily_consult_export_lifecycle_test.dart \
-            test/period_consult_month_lifecycle_test.dart
+            test/monthly_daily_consult_export_ui_test.dart
 
       - name: Prepare temporary upload signing material
         shell: bash

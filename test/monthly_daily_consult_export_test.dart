@@ -2,13 +2,19 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pancyo_ai_astrology/main.dart';
-import 'daily_star_timeline_test.dart' as f;
+const subject = AstroProfile(
+  name: 'SevenTimelineDemo',
+  birthDate: '1990/1/2',
+  birthTime: '08:30',
+  birthPlace: '東京都',
+  theme: '配置の表示検査',
+);
 
 MonthlyDailyConsultExportRequest request(int year, int month) {
   final source = AstrologyDataSources.current;
   return MonthlyDailyConsultExportRequest(
     startDate: DateTime.utc(year, month, 1, 3),
-    profile: f.subject,
+    profile: subject,
     details: const UserProfileDetails.empty(),
     requestedHouseSystem: HouseSystemSettings.current.value,
     sourceName: source.sourceName,
