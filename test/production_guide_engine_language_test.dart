@@ -338,12 +338,13 @@ void main() {
     'daily aspect, placement and expanded House 10 details are translated',
     (tester) async {
       AppLanguageSettings.current.value = AppLanguage.en;
+      final contextData = _context();
       await tester.pumpWidget(
         _host(
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TodayAstroDataPanel(contextData: _context()),
+              TodayAstroDataPanel(contextData: contextData),
               const LongFortuneEvidencePanel(
                 current: '月',
                 transitHouse: '月 第10ハウス',
@@ -355,26 +356,52 @@ void main() {
         ),
       );
 
-      expect(find.text('Current Venus and natal Moon'), findsOneWidget);
-      expect(find.text('Current Mercury and current Jupiter'), findsOneWidget);
-      expect(find.text('Major aspects on this day'), findsOneWidget);
-      expect(find.text('Aspects between current planets'), findsOneWidget);
-      expect(find.text('Current planetary placements'), findsOneWidget);
+      expect(find.text('Transiting Venus and natal Moon'), findsOneWidget);
+      expect(
+        find.text('Transiting Mercury and transiting Jupiter'),
+        findsOneWidget,
+      );
+      expect(find.text('Major aspects for this date'), findsOneWidget);
+      expect(find.text('Aspects between transiting planets'), findsOneWidget);
+      expect(find.text('Planet positions for this date'), findsOneWidget);
       expect(find.text('sextile'), findsOneWidget);
-      expect(find.text('An aspect that may create an opening'), findsOneWidget);
+      expect(find.text('A small step can open an opportunity.'), findsOneWidget);
       expect(
-        find.textContaining(
-          'The influence may be quite strong. Affection and enjoyment may support mood and daily rhythm.',
+        find.text(
+          'The influence is particularly strong. Current affection and enjoyment '
+          'supports your natal mood and daily rhythm. A small message, '
+          'preparation, or proposal can open a useful opportunity.',
         ),
         findsOneWidget,
       );
-      expect(find.textContaining('Mercury is retrograde'), findsOneWidget);
       expect(
-        find.textContaining(
-          'Venus: Scorpio 7.3° / relationships, enjoyment and attitudes toward money',
+        find.text(
+          'Mercury retrograde. Review messages, decisions, and plans before '
+          'confirming them.',
         ),
         findsOneWidget,
       );
+      expect(
+        find.text('Venus: Scorpio 7.3° / Relationships, pleasure, and spending'),
+        findsOneWidget,
+      );
+      final aspects = tester.widgetList<AspectLine>(find.byType(AspectLine));
+      final natalAspect = aspects.singleWhere(
+        (line) => line.from == 'Transiting Venus',
+      );
+      expect(natalAspect.to, 'natal Moon');
+      expect(natalAspect.aspectName, 'sextile');
+      expect(natalAspect.angle, '60°');
+      expect(natalAspect.orb, 'Orb 0.4°');
+      expect(natalAspect.time, 'Near peak now');
+      final skyAspect = aspects.singleWhere(
+        (line) => line.from == 'Transiting Mercury',
+      );
+      expect(skyAspect.to, 'transiting Jupiter');
+      expect(skyAspect.aspectName, 'trine');
+      expect(skyAspect.angle, '120°');
+      expect(skyAspect.orb, 'Orb 0.3°');
+      expect(skyAspect.time, 'Near peak now');
       final detailsButton = find.text('Details').first;
       await tester.ensureVisible(detailsButton);
       await tester.pumpAndSettle();
@@ -386,6 +413,9 @@ void main() {
       await tester.ensureVisible(moonHouseDetail);
       await tester.pumpAndSettle();
       expect(moonHouseDetail, findsOneWidget);
+      expect(contextData.aspects.single.meaning, '架空テスト用の説明');
+      expect(contextData.transit.date, DateTime.utc(2026, 10, 11, 3));
+      expect(contextData.transit.date.isUtc, isTrue);
       expect(tester.takeException(), isNull);
     },
   );
@@ -432,28 +462,72 @@ void main() {
   testWidgets('the full aspect table translates positions and house transits', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(1100, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     AppLanguageSettings.current.value = AppLanguage.en;
+    final contextData = _context();
     await tester.pumpWidget(
-      _host(TodayAstroDataPanel(contextData: _context())),
+      _host(TodayAstroDataPanel(contextData: contextData)),
     );
-    await tester.tap(find.text('Open the full aspect table'));
+    await tester.tap(find.text('Open all aspects'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Venus in Scorpio 7.3° / House 10'), findsOneWidget);
-    expect(find.text('Moon in Libra 23.4° / House 10'), findsOneWidget);
-    expect(
-      find.text('Mercury in Scorpio 2.1° / House 9 retrograde'),
-      findsOneWidget,
-    );
-    expect(find.text('Jupiter in Cancer 16.4° / House 5'), findsOneWidget);
-    final moonHouseRow = find.text('Moon transiting natal House 10 / Work');
+    const positionsLabel =
+        'Positions: 2026-10-11 (Sun) 12:00 JST (UTC+09:00)';
+    expect(find.text(positionsLabel), findsOneWidget);
+    for (final expected in [
+      'All aspect details',
+      'Current planet positions',
+      'All aspects to the natal chart',
+      'All aspects between transiting planets',
+      'Venus Scorpio 7.3° House 10',
+      'Moon Libra 23.4° House 10',
+      'Mercury Scorpio 2.1° House 9 retrograde',
+      'Jupiter Cancer 16.4° House 5',
+      'Venus sextile natal Moon Orb 0.4° / Near peak now',
+      'Mercury trine Jupiter Orb 0.3° / Near peak now',
+    ]) {
+      expect(find.text(expected), findsOneWidget, reason: expected);
+    }
+    final moonHouseRow = find.text('Moon House 10 / Work');
     await tester.ensureVisible(moonHouseRow);
     await tester.pumpAndSettle();
     expect(moonHouseRow, findsOneWidget);
-    final noReturns = find.text('No planetary returns today.');
+    final noReturns = find.text('No planetary returns for this date.');
     await tester.ensureVisible(noReturns);
     await tester.pumpAndSettle();
     expect(noReturns, findsOneWidget);
+
+    // The picker edits civil JST fields. Confirming unchanged controls must
+    // preserve the original instant and synthetic aspects, not recalculate.
+    await tester.tap(find.text('Change date/time'));
+    await tester.pumpAndSettle();
+    final datePicker = tester.widget<DatePickerDialog>(
+      find.byType(DatePickerDialog),
+    );
+    expect(datePicker.initialDate, DateTime(2026, 10, 11));
+    expect(datePicker.helpText, 'Date for all aspects (JST)');
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    final timePicker = tester.widget<TimePickerDialog>(
+      find.byType(TimePickerDialog),
+    );
+    expect(timePicker.initialTime, const TimeOfDay(hour: 12, minute: 0));
+    expect(timePicker.helpText, 'Time for all aspects (JST)');
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    expect(find.text(positionsLabel), findsOneWidget);
+    expect(
+      find.text('Venus sextile natal Moon Orb 0.4° / Near peak now'),
+      findsOneWidget,
+    );
+    expect(contextData.transit.date, DateTime.utc(2026, 10, 11, 3));
+    expect(contextData.transit.date.isUtc, isTrue);
+    expect(contextData.aspects.single.meaning, '架空テスト用の説明');
+    expect(contextData.fullAspects.single, same(contextData.aspects.single));
+    expect(contextData.natal.profile.birthPlace, '札幌・本人入力');
     expect(tester.takeException(), isNull);
   });
 

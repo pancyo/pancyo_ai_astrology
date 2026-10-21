@@ -90,7 +90,10 @@ jobs:
             test/reading_share_geometry_test.dart \
             test/overall_area_highlights_test.dart \
             test/long_range_lightweight_equivalence_test.dart \
-            test/daily_weekly_selected_graph_test.dart
+            test/daily_weekly_selected_graph_test.dart \
+            test/reading_sky_copy_test.dart \
+            test/long_range_display_test.dart \
+            test/forecast_reading_narrative_aspect_test.dart
 
       - name: Prepare temporary upload signing material
         shell: bash

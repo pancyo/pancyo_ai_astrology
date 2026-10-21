@@ -174,8 +174,17 @@ void main() {
     await frames(tester);
   }
 
-  PeriodSevenSummary shownSummary(WidgetTester tester) =>
-      tester.widget<PeriodSevenTrend>(find.byType(PeriodSevenTrend)).summary;
+  PeriodSevenSummary shownSummary(WidgetTester tester) {
+    final overview = tester.widget<PeriodSevenOverview>(
+      find.byType(PeriodSevenOverview),
+    );
+    if (overview.mode == LongRangeMode.week) {
+      return tester
+          .widget<MonthHalfDailyTrend>(find.byType(MonthHalfDailyTrend))
+          .summary;
+    }
+    return tester.widget<PeriodSevenTrend>(find.byType(PeriodSevenTrend)).summary;
+  }
 
   List<Map<String, Object?>> syntheticDays(PeriodSevenDisplayRequest request) {
     // Keep the internally consistent seed score audits and felt traces. Only
@@ -354,12 +363,34 @@ void main() {
       await pump(tester, mode: LongRangeMode.week, first: first);
       expect(shownSummary(tester), same(summaries.first));
       expect(jobs.length, 12);
-      final reusedGraph = tester.widget<PeriodSevenGroupedTrendView>(
-        find.byType(PeriodSevenGroupedTrendView),
+      final reusedGraph = tester.widget<MonthHalfDailyTrend>(
+        find.byType(MonthHalfDailyTrend),
       );
-      expect(reusedGraph.summaries.length, 4);
-      for (var week = 0; week < 4; week++) {
-        expect(reusedGraph.summaries[week], same(summaries[week]));
+      expect(reusedGraph.weekly, isTrue);
+      expect(reusedGraph.summary, same(summaries.first));
+      expect(reusedGraph.dailySummaries, hasLength(7));
+      expect(find.byType(PeriodSevenTrend), findsNothing);
+      expect(find.byType(PeriodSevenGroupedTrendView), findsNothing);
+      for (var day = 0; day < 7; day++) {
+        final daily = reusedGraph.dailySummaries[day];
+        final expectedDate = first
+            .add(Duration(days: day))
+            .toIso8601String()
+            .substring(0, 10);
+        expect(daily.startDateJst, expectedDate);
+        expect(daily.endDateJst, expectedDate);
+        expect(daily.dayCount, 1);
+        expect(daily.dates, hasLength(7));
+        expect(
+          jsonEncode(daily.toJson()),
+          jsonEncode(summaries.first.daySummaryAt(day).toJson()),
+        );
+        for (final sample in daily.predictionsByInstant.entries) {
+          expect(
+            sample.value,
+            same(summaries.first.predictionsByInstant[sample.key]),
+          );
+        }
       }
       await pump(
         tester,
@@ -377,18 +408,30 @@ void main() {
         mode: LongRangeMode.week,
         first: first.add(const Duration(days: 28)),
       );
+      expect(shownSummary(tester), same(summaries[4]));
+      expect(jobs.length, 13);
+      // The selected-week graph reads only that week's seven daily means.
+      // Reopening week 1 refreshes week 1 alone; week 2, not week 5, is LRU.
+      await pump(
+        tester,
+        mode: LongRangeMode.week,
+        first: first.add(const Duration(days: 7)),
+      );
       expect(
         jobs.length,
         14,
         reason:
-            'Reopening the first week reused its complete four-week graph, '
-            'so the fifth week became least recently used.',
+            'The second week was evicted when the thirteenth week completed; '
+            'the refreshed first and untouched fifth weeks were retained.',
       );
+      expect(requests.last.startDateJst, DateTime.utc(2026, 1, 8));
       expect(find.byType(FortuneNumber), findsNothing);
       complete();
       await frames(tester);
       expect(PeriodSevenDisplaySessionCache.completedCount, 12);
       expect(PeriodSevenDisplaySessionCache.pendingCount, 0);
+      expect(shownSummary(tester), isNot(same(summaries[1])));
+      expect(shownSummary(tester).startDateJst, '2026-01-08');
       expect(fileCalls, 0);
       expect(tester.takeException(), isNull);
     },
