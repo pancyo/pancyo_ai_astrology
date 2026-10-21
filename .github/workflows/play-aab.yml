@@ -1,4 +1,4 @@
-name: Monthly seven-point closed-test candidate (artifact only)
+name: Production v91 seven-point readings candidate (artifact only)
 
 on:
   workflow_dispatch:
@@ -39,11 +39,11 @@ jobs:
           set -euo pipefail
           version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n 1)"
           code="${version##*+}"
-          if [[ ! "$code" =~ ^[0-9]+$ ]] || (( code != 90 )); then
-            echo 'versionCode must be greater than the last verified production code.' >&2
+          if [[ ! "$code" =~ ^[0-9]+$ ]] || (( code != 91 )); then
+            echo 'This production candidate must have versionCode 91.' >&2
             exit 1
           fi
-          test "$version" = '0.3.63+90'
+          test "$version" = '0.3.64+91'
           grep -Fq 'else "com.pancyo.aiastrology"' android/app/build.gradle.kts
           if grep -Fq 'LegacyDataCleanup.removeFromPreviousVersions()' lib/main.dart; then
             echo 'Refusing to build while startup cleanup can delete existing user data.' >&2
@@ -71,7 +71,26 @@ jobs:
             test/production_guide_engine_language_test.dart \
             test/natal_themes_english_test.dart \
             test/monthly_daily_consult_export_test.dart \
-            test/monthly_daily_consult_export_ui_test.dart
+            test/monthly_daily_consult_export_ui_test.dart \
+            test/period_seven_month_half_test.dart \
+            test/period_seven_display_worker_test.dart \
+            test/period_seven_display_cache_test.dart \
+            test/period_seven_summary_test.dart \
+            test/period_seven_overview_test.dart \
+            test/period_seven_grouped_trend_test.dart \
+            test/period_seven_readings_test.dart \
+            test/period_seven_point_panel_test.dart \
+            test/profile_seven_point_entrypoints_test.dart \
+            test/consult_period_seven_point_navigation_test.dart \
+            test/weekly_seven_preservation_test.dart \
+            test/seven_period_explanation_regression_test.dart \
+            test/calendar_regression_existing_test.dart \
+            test/calendar_text_size_test.dart \
+            test/astrology_calendar_share_test.dart \
+            test/reading_share_geometry_test.dart \
+            test/overall_area_highlights_test.dart \
+            test/long_range_lightweight_equivalence_test.dart \
+            test/daily_weekly_selected_graph_test.dart
 
       - name: Prepare temporary upload signing material
         shell: bash
@@ -132,7 +151,7 @@ jobs:
       - name: Save candidate as a CI artifact only
         uses: actions/upload-artifact@v4
         with:
-          name: closed-monthly-seven-v90
+          name: production-seven-point-v91
           path: |
             build/app/outputs/bundle/release/app-release.aab
             build/app/outputs/bundle/release/SHA256SUMS
