@@ -1,0 +1,64 @@
+name: Android テスト版APKを配布
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Profile APKをビルドしてGitHub Releasesへ載せる
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ソースを取得
+        uses: actions/checkout@v4
+
+      - name: Javaを準備
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Flutterを準備
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: 依存関係を取得
+        run: flutter pub get
+
+      - name: テスト版の署名鍵を準備
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/pancyo-test.keystore"
+            printf '%s\n' \
+              "storePassword=$ANDROID_KEYSTORE_PASSWORD" \
+              "keyPassword=$ANDROID_KEY_PASSWORD" \
+              "keyAlias=$ANDROID_KEY_ALIAS" \
+              "storeFile=$RUNNER_TEMP/pancyo-test.keystore" \
+              > android/key.properties
+          else
+            echo "固定署名鍵は未設定です。今回のAPKは上書き更新に使えません。"
+          fi
+
+      - name: Profile APKを作成
+        run: flutter build apk --profile
+
+      - name: テスト版リリースを作成
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          "build/app/outputs/flutter-apk/app-profile.apk#app-profile.apk"
+          --title "ぱんちょ式星占い テスト版 $GITHUB_REF_NAME"
+          --prerelease
+          --generate-notes

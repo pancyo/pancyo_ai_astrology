@@ -1,0 +1,147 @@
+name: Monthly seven-point closed-test candidate (artifact only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_build:
+        description: Build the signed AAB candidate only; do not submit or publish it
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-aab-candidate:
+    if: ${{ inputs.confirm_build }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout selected source branch
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up pinned Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.4'
+          cache: false
+
+      - name: Verify production source and lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version:[[:space:]]*//p' pubspec.yaml | head -n 1)"
+          code="${version##*+}"
+          if [[ ! "$code" =~ ^[0-9]+$ ]] || (( code != 90 )); then
+            echo 'versionCode must be greater than the last verified production code.' >&2
+            exit 1
+          fi
+          test "$version" = '0.3.63+90'
+          grep -Fq 'else "com.pancyo.aiastrology"' android/app/build.gradle.kts
+          if grep -Fq 'LegacyDataCleanup.removeFromPreviousVersions()' lib/main.dart; then
+            echo 'Refusing to build while startup cleanup can delete existing user data.' >&2
+            exit 1
+          fi
+          if [[ -e android/key.properties ]]; then
+            echo 'Refusing source-shipped signing configuration.' >&2
+            exit 1
+          fi
+          lock_before="$(sha256sum pubspec.lock | awk '{print $1}')"
+          flutter pub get --enforce-lockfile
+          lock_after="$(sha256sum pubspec.lock | awk '{print $1}')"
+          test "$lock_before" = "$lock_after"
+          git diff --exit-code -- pubspec.lock
+
+      - name: Verify data preservation and English display contracts
+        shell: bash
+        run: |
+          flutter test --no-pub --concurrency=1 --reporter=expanded \
+            test/production_update_preservation_test.dart \
+            test/profile_save_roundtrip_test.dart \
+            test/app_backup_restore_validation_test.dart \
+            test/app_backup_restore_failure_test.dart \
+            test/production_legacy_backup_compatibility_test.dart \
+            test/production_guide_engine_language_test.dart \
+            test/natal_themes_english_test.dart \
+            test/monthly_daily_consult_export_test.dart \
+            test/monthly_daily_consult_export_ui_test.dart
+
+      - name: Prepare temporary upload signing material
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${ANDROID_KEYSTORE_BASE64:?missing upload keystore secret}"
+          : "${ANDROID_KEYSTORE_PASSWORD:?missing upload keystore password}"
+          : "${ANDROID_KEY_ALIAS:?missing upload key alias}"
+          : "${ANDROID_KEY_PASSWORD:?missing upload key password}"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/pancyo-upload.keystore"
+          {
+            printf 'storePassword=%s\n' "$ANDROID_KEYSTORE_PASSWORD"
+            printf 'keyPassword=%s\n' "$ANDROID_KEY_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_KEY_ALIAS"
+            printf 'storeFile=%s\n' "$RUNNER_TEMP/pancyo-upload.keystore"
+          } > android/key.properties
+          chmod 600 "$RUNNER_TEMP/pancyo-upload.keystore" android/key.properties
+
+      - name: Build signed production AAB only
+        shell: bash
+        run: flutter build appbundle --release --no-pub --target lib/main.dart
+
+      - name: Verify AAB signature and upload certificate pin
+        shell: bash
+        env:
+          EXPECTED_UPLOAD_CERT_SHA256: 8561F999A75C3FC6EDC283A7B220A1D99AA18A427610691F5404F07EBFF53F4E
+        run: |
+          set -euo pipefail
+          aab='build/app/outputs/bundle/release/app-release.aab'
+          test -s "$aab"
+          : "${EXPECTED_UPLOAD_CERT_SHA256:?missing certificate pin from the previously signed version-87 AAB}"
+          verification=0
+          jarsigner -J-Duser.language=en -strict -verify -certs -verbose "$aab" > "$RUNNER_TEMP/aab-signature-verification.txt" 2>&1 || verification=$?
+          # An upload certificate is self-signed. Reject every other strict bit,
+          # including unsigned archive entries (16) and invalid signatures (1).
+          if (( verification != 0 && verification != 4 )); then
+            echo "AAB strict signature verification rejected exit $verification." >&2
+            exit 1
+          fi
+          keytool -printcert -jarfile "$aab" > "$RUNNER_TEMP/aab-certificate.txt"
+          if grep -q 'CN=Android Debug' "$RUNNER_TEMP/aab-certificate.txt"; then
+            echo 'Debug-signed AAB rejected.' >&2
+            exit 1
+          fi
+          actual="$(sed -n 's/^[[:space:]]*SHA256: *//p' "$RUNNER_TEMP/aab-certificate.txt" | head -n 1 | tr -d ':' | tr '[:lower:]' '[:upper:]')"
+          expected="$(printf '%s' "$EXPECTED_UPLOAD_CERT_SHA256" | tr -d '[:space:]:\r\n' | tr '[:lower:]' '[:upper:]')"
+          [[ "$actual" =~ ^[A-F0-9]{64}$ ]]
+          test "$actual" = "$expected"
+          sha256sum "$aab" > build/app/outputs/bundle/release/SHA256SUMS
+          git rev-parse HEAD > build/app/outputs/bundle/release/SOURCE_COMMIT
+          echo 'AAB signature matches the configured upload certificate.'
+
+      - name: Save candidate as a CI artifact only
+        uses: actions/upload-artifact@v4
+        with:
+          name: closed-monthly-seven-v90
+          path: |
+            build/app/outputs/bundle/release/app-release.aab
+            build/app/outputs/bundle/release/SHA256SUMS
+            build/app/outputs/bundle/release/SOURCE_COMMIT
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove temporary signing material
+        if: always()
+        shell: bash
+        run: |
+          rm -f android/key.properties "$RUNNER_TEMP/pancyo-upload.keystore" "$RUNNER_TEMP/aab-signature-verification.txt" "$RUNNER_TEMP/aab-certificate.txt"
