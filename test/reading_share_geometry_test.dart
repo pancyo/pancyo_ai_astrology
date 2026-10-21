@@ -43,7 +43,7 @@ void main() {
     final flutterRoot =
         Platform.environment['FLUTTER_ROOT'] ?? r'C:\Users\pancy\flutter';
     final font = FontLoader('Roboto');
-    for (final name in ['roboto-regular.ttf', 'roboto-bold.ttf']) {
+    for (final name in ['Roboto-Regular.ttf', 'Roboto-Bold.ttf']) {
       font.addFont(
         File(
           '$flutterRoot/bin/cache/artifacts/material_fonts/$name',

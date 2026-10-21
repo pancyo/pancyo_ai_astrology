@@ -66,11 +66,12 @@ jobs:
         run: |
           test "$(date +%z)" = '+0900'
           flutter test --no-pub --concurrency=1 --reporter=expanded test/seven_period_explanation_regression_test.dart
+          flutter test --no-pub --concurrency=1 --reporter=expanded --tags legacyJstFixture test/long_range_lightweight_equivalence_test.dart
 
       - name: Verify data preservation and English display contracts
         shell: bash
         run: |
-          flutter test --no-pub --concurrency=1 --reporter=expanded \
+          flutter test --no-pub --concurrency=1 --reporter=expanded --exclude-tags legacyJstFixture \
             test/production_update_preservation_test.dart \
             test/profile_save_roundtrip_test.dart \
             test/app_backup_restore_validation_test.dart \

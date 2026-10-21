@@ -550,12 +550,21 @@ void main() {
   test(
     'all 72 frozen formal explanation JSON records remain byte-equivalent',
     () {
+      expect(
+        DateTime(1990, 1, 2, 12).timeZoneOffset,
+        const Duration(hours: 9),
+        reason: 'The frozen legacy birth fixture requires TZ=Asia/Tokyo.',
+      );
       const profile = AstroProfile(
         name: 'ExplanationRegressionSynthetic',
         birthDate: '1990/1/2',
         birthTime: '12:00',
         birthPlace: '札幌市',
         theme: 'fixture',
+      );
+      expect(
+        const SimpleEphemeris().dateFromProfile(profile).toUtc(),
+        DateTime.utc(1990, 1, 2, 3),
       );
       final cache = <DateTime, List<NineAreaPrediction>>{};
       List<NineAreaPrediction> daily(DateTime date) => cache.putIfAbsent(
@@ -618,5 +627,6 @@ void main() {
       );
     },
     timeout: const Timeout(Duration(minutes: 5)),
+    tags: 'legacyJstFixture',
   );
 }
