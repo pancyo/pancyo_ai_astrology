@@ -9,6 +9,13 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   test('daily and annual explanation stay byte-equivalent to frozen seven-r1', () {
     const profile=AstroProfile(name:'ExplanationRegressionSynthetic',birthDate:'1990/1/2',birthTime:'12:00',birthPlace:'札幌市',theme:'fixture');
+    // Frozen reference used the legacy, non-native SimpleEphemeris fixture
+    // at 12:00 civil JST. CI pins only this test to Asia/Tokyo; the other
+    // display/time-boundary tests remain on the UTC runner.
+    expect(DateTime(1990,1,2,12).timeZoneOffset, const Duration(hours:9),
+      reason:'The frozen legacy birth fixture requires TZ=Asia/Tokyo.');
+    expect(const SimpleEphemeris().dateFromProfile(profile).toUtc(),
+      DateTime.utc(1990,1,2,3));
     HouseSystemSettings.current.value=HouseSystem.placidus;
     final cache=<DateTime,List<NineAreaPrediction>>{};
     List<NineAreaPrediction> daily(DateTime d) => cache.putIfAbsent(d,()=>NineAreaDailyForecast.fromContext(const AstrologyEngine().buildPreviewContext(profile:profile,date:d)));

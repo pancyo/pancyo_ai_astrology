@@ -59,6 +59,14 @@ jobs:
           test "$lock_before" = "$lock_after"
           git diff --exit-code -- pubspec.lock
 
+      - name: Verify frozen synthetic explanations in original JST fixture
+        shell: bash
+        env:
+          TZ: Asia/Tokyo
+        run: |
+          test "$(date +%z)" = '+0900'
+          flutter test --no-pub --concurrency=1 --reporter=expanded test/seven_period_explanation_regression_test.dart
+
       - name: Verify data preservation and English display contracts
         shell: bash
         run: |
@@ -83,7 +91,6 @@ jobs:
             test/profile_seven_point_entrypoints_test.dart \
             test/consult_period_seven_point_navigation_test.dart \
             test/weekly_seven_preservation_test.dart \
-            test/seven_period_explanation_regression_test.dart \
             test/calendar_regression_existing_test.dart \
             test/calendar_text_size_test.dart \
             test/astrology_calendar_share_test.dart \
