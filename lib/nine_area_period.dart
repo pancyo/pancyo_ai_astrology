@@ -512,6 +512,7 @@ class NineAreaPeriodOverview extends StatelessWidget {
       if (depth == ReadingDepth.simple &&
           MediaQuery.sizeOf(context).shortestSide >= 600)
         SimpleNineAreaDashboard(
+          periodLabel: readingPeriodRange(summary),
           items: [
             for (final area in summary.areas)
               SimpleNineAreaItem(
@@ -612,6 +613,7 @@ class NineAreaPeriodOverview extends StatelessWidget {
                       style: TextStyle(fontSize: 12, color: Color(0xFFB8C6E0)),
                     ),
                     const SizedBox(height: 6),
+                    ReadingPeriodDate(label: readingPeriodRange(summary)),
                     tile(summary.areas.first),
                     const SizedBox(height: gap),
                     ...rows(summary.areas.sublist(1, 5)),
@@ -626,6 +628,7 @@ class NineAreaPeriodOverview extends StatelessWidget {
                   style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 10),
+                ReadingPeriodDate(label: readingPeriodRange(summary)),
                 ...rows(summary.areas.sublist(5)),
               ],
             );

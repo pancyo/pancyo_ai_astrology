@@ -201,11 +201,9 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await _pumpCalendar(tester, calls: [], identity: 'phone-text-$language',
         size: const Size(390, 844), scale: 1.3);
-      expect(_key('astrology-calendar-grid-scroll'), findsOneWidget);
-      final content = tester.widget<AstrologyCalendarDayContent>(find.descendant(
-        of: _key('astrology-calendar-day-2026-11-18'),
-        matching: find.byType(AstrologyCalendarDayContent),
-      ));
+      expect(_key('astrology-calendar-grid-scroll'), findsNothing);
+      final content = tester.widget<AstrologyCalendarPhoneWeekRows>(
+        find.byType(AstrologyCalendarPhoneWeekRows));
       expect(content.fontSize, 19);
       await _openSizeDialog(tester);
       _expectSelected(tester, 19);

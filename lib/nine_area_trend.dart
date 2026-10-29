@@ -232,11 +232,17 @@ class AdditionalFortuneTrendChart extends StatefulWidget {
     required this.dataFor,
     required this.basis,
     this.diagnosticRequest,
+    this.nowAxis,
+    this.voidBands = const [],
+    this.nowUtc,
   });
   final Object dataIdentity;
   final AdditionalFortuneTrendData Function() dataFor;
   final String basis;
   final PeriodTrendRequest? diagnosticRequest;
+  final GraphNowAxis? nowAxis;
+  final List<GraphVoidBand> voidBands;
+  final DateTime Function()? nowUtc;
 
   @override
   State<AdditionalFortuneTrendChart> createState() =>
@@ -361,6 +367,9 @@ class _AdditionalFortuneTrendChartState
           AdditionalFortuneTrendView(
             data: _data!,
             basis: widget.basis,
+            nowAxis: widget.nowAxis,
+            voidBands: widget.voidBands,
+            nowUtc: widget.nowUtc,
             diagnosticRequest: widget.diagnosticRequest,
           ),
       ],
@@ -374,10 +383,16 @@ class AdditionalFortuneTrendView extends StatelessWidget {
     required this.data,
     required this.basis,
     this.diagnosticRequest,
+    this.nowAxis,
+    this.voidBands = const [],
+    this.nowUtc,
   });
   final AdditionalFortuneTrendData data;
   final String basis;
   final PeriodTrendRequest? diagnosticRequest;
+  final GraphNowAxis? nowAxis;
+  final List<GraphVoidBand> voidBands;
+  final DateTime Function()? nowUtc;
 
   void _showPoint(BuildContext context, int i) => showDialog<void>(
     context: context,
@@ -405,167 +420,206 @@ class AdditionalFortuneTrendView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      key: const ValueKey('additional-trend-content'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SizedBox(height: 12),
-        Text(
-          _periodDisplayCopy(
-            context,
-            '健康・対人・行動／決断の流れ',
-            'Health, relationships and activity trends',
+    return CurrentGraphClock(
+      axis: nowAxis,
+      nowUtc: nowUtc,
+      builder: (context, nowMarker) => Column(
+        key: const ValueKey('additional-trend-content'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 12),
+          Text(
+            _periodDisplayCopy(
+              context,
+              '健康・対人・行動／決断の流れ',
+              'Health, relationships and activity trends',
+            ),
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
           ),
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          localizedUiText(context, basis),
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.62),
-            fontSize: 11,
+          const SizedBox(height: 4),
+          Text(
+            localizedUiText(context, basis),
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.62),
+              fontSize: 11,
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final minWidth =
-                MediaQuery.textScalerOf(context).scale(72) *
-                    (data.labels.length - 1) +
-                46;
-            return SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: math.max(constraints.maxWidth, minWidth),
-                height: FortuneFlowPainter.chartHeight(
-                  MediaQuery.textScalerOf(context),
-                ),
-                child: CustomPaint(
-                  painter: FortuneFlowPainter(
-                    textScaler: MediaQuery.textScalerOf(context),
-                    series: data.series,
-                    labels: data.labels
-                        .map(
-                          (v) => periodTrendAxisLabel(
-                            v,
-                            AppLanguageScope.stringsOf(context),
-                          ),
-                        )
-                        .toList(),
-                    diagnosticRequest: AdditionalTrendPointCheck.enabled
-                        ? diagnosticRequest
-                        : null,
-                    diagnosticAdditionalData: AdditionalTrendPointCheck.enabled
-                        ? data
-                        : null,
+          const SizedBox(height: 12),
+          if (voidBands.isNotEmpty)
+            DailyGraphVoidLegend(
+              data: DailyGraphVoidData(DailyGraphVoidStatus.ready, voidBands),
+            ),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final minWidth = graphAxisMinimumWidth(
+                data.labels
+                    .map(
+                      (v) => periodTrendAxisLabel(
+                        v,
+                        AppLanguageScope.stringsOf(context),
+                      ),
+                    )
+                    .toList(),
+                MediaQuery.textScalerOf(context),
+              );
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: math.max(constraints.maxWidth, minWidth),
+                  height: FortuneFlowPainter.chartHeight(
+                    MediaQuery.textScalerOf(context),
                   ),
-                  child: const SizedBox.expand(),
+                  child: GraphNowInitialReveal(
+                    axis: nowAxis,
+                    nowUtc: nowUtc,
+                    child: CustomPaint(
+                      painter: FortuneFlowPainter(
+                        nowMarker: nowMarker,
+                        voidBands: voidBands,
+                        textScaler: MediaQuery.textScalerOf(context),
+                        series: data.series,
+                        labels: data.labels
+                            .map(
+                              (v) => periodTrendAxisLabel(
+                                v,
+                                AppLanguageScope.stringsOf(context),
+                              ),
+                            )
+                            .toList(),
+                        diagnosticRequest: AdditionalTrendPointCheck.enabled
+                            ? diagnosticRequest
+                            : null,
+                        diagnosticAdditionalData:
+                            AdditionalTrendPointCheck.enabled ? data : null,
+                      ),
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
                 ),
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 8,
-          children: [
-            for (final series in data.series)
-              _FlowLegend(
-                label:
-                    AppLanguageScope.stringsOf(context).language ==
-                        AppLanguage.ja
-                    ? series.label
-                    : AppLanguageScope.stringsOf(context).nineAreaTitle(
-                        AdditionalFortuneTrendData
-                            .numericKeys[data.series.indexOf(series)]
-                            .name,
-                      ),
-                color: series.color,
-              ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        Text(
-          _periodDisplayCopy(
-            context,
-            '体感の流れ（文字候補）',
-            'Felt-experience trend (candidate labels)',
+              );
+            },
           ),
-          style: TextStyle(fontWeight: FontWeight.w900),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          _periodDisplayCopy(
-            context,
-            '体感は点数にせず文字と色で表示。各時点を押すと3項目の点数と体感の内訳を確認できます。狭い画面の折れ線は横にスクロールできます。',
-            'Felt experience uses labels and colors, not a score. Tap a point for the three numeric areas and felt details. Scroll the line chart horizontally on narrow screens.',
-          ),
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.62),
-            fontSize: 11,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (var i = 0; i < data.labels.length; i++)
-              Semantics(
-                label: data.displayPointDetail(context, i),
-                button: true,
-                excludeSemantics: true,
-                onTap: () => _showPoint(context, i),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    key: ValueKey('felt-trend-$i'),
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () => _showPoint(context, i),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 9,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        color: data.felt[i].color.withValues(alpha: 0.08),
-                        border: Border.all(
-                          color: data.felt[i].color.withValues(alpha: 0.75),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              for (final series in data.series)
+                _FlowLegend(
+                  label:
+                      AppLanguageScope.stringsOf(context).language ==
+                          AppLanguage.ja
+                      ? series.label
+                      : AppLanguageScope.stringsOf(context).nineAreaTitle(
+                          AdditionalFortuneTrendData
+                              .numericKeys[data.series.indexOf(series)]
+                              .name,
                         ),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            periodTrendAxisLabel(
-                              data.labels[i],
-                              AppLanguageScope.stringsOf(context),
-                            ),
-                            style: const TextStyle(fontSize: 11),
+                  color: series.color,
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _periodDisplayCopy(
+              context,
+              '体感の流れ（文字候補）',
+              'Felt-experience trend (candidate labels)',
+            ),
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _periodDisplayCopy(
+              context,
+              '体感は点数にせず文字と色で表示。各時点を押すと3項目の点数と体感の内訳を確認できます。狭い画面の折れ線は横にスクロールできます。',
+              'Felt experience uses labels and colors, not a score. Tap a point for the three numeric areas and felt details. Scroll the line chart horizontally on narrow screens.',
+            ),
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.62),
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (var i = 0; i < data.labels.length; i++)
+                Semantics(
+                  label: data.displayPointDetail(context, i),
+                  button: true,
+                  excludeSemantics: true,
+                  onTap: () => _showPoint(context, i),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      key: ValueKey('felt-trend-$i'),
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () => _showPoint(context, i),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 9,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          color: data.felt[i].color.withValues(alpha: 0.08),
+                          border: Border.all(
+                            color: nowMarker?.pointIndex == i
+                                ? const Color(0xFFF6D77A)
+                                : data.felt[i].color.withValues(alpha: 0.75),
+                            width: nowMarker?.pointIndex == i ? 2.5 : 1,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            periodFeltDisplayLabel(
-                              data.felt[i].label,
-                              AppLanguageScope.stringsOf(context),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (nowMarker?.pointIndex == i)
+                              Text(
+                                nowMarker!.nearestSample
+                                    ? _periodDisplayCopy(
+                                        context,
+                                        '今に近い時点',
+                                        'Nearest to now',
+                                      )
+                                    : nowMarker.label,
+                                key: const ValueKey('felt-current-position'),
+                                style: const TextStyle(
+                                  color: Color(0xFFF6D77A),
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            Text(
+                              periodTrendAxisLabel(
+                                data.labels[i],
+                                AppLanguageScope.stringsOf(context),
+                              ),
+                              style: const TextStyle(fontSize: 11),
                             ),
-                            style: TextStyle(
-                              color: data.felt[i].color,
-                              fontWeight: FontWeight.w900,
-                              fontSize: 15,
+                            const SizedBox(height: 4),
+                            Text(
+                              periodFeltDisplayLabel(
+                                data.felt[i].label,
+                                AppLanguageScope.stringsOf(context),
+                              ),
+                              style: TextStyle(
+                                color: data.felt[i].color,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 15,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-          ],
-        ),
-      ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

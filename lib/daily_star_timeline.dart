@@ -878,6 +878,7 @@ class DailyTimeFlowCard extends StatefulWidget {
     this.details,
     this.startJob,
     this.startForecastJob,
+    this.startVoidJob,
     this.nowUtc,
     this.showTrend = false,
     this.showShare = true,
@@ -889,6 +890,7 @@ class DailyTimeFlowCard extends StatefulWidget {
   final UserProfileDetails? details;
   final DailyStarTimelineStarter? startJob;
   final DailyTimepointForecastStarter? startForecastJob;
+  final AstrologyCalendarStarter? startVoidJob;
   final DateTime Function()? nowUtc;
   final bool showTrend;
   final bool showShare;
@@ -1368,7 +1370,13 @@ class _DailyTimeFlowCardState extends State<DailyTimeFlowCard> {
     final english = strings.language == AppLanguage.en;
     final data = _trendData;
     final working = _job != null || _forecastJob != null;
-    return Column(
+    return DailyGraphVoidLayer(
+      dateJst: _request?.plan.targetDateJst ?? NineAreaPeriodSummary.dateLabel(widget.date),
+      enabled: data != null,
+      sourceName: _request?.sourceName ?? '',
+      requireHighPrecision: _request?.requireHighPrecision ?? false,
+      startJob: widget.startVoidJob,
+      builder: (context, voidData, retryVoid) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         GlassPanel(
@@ -1393,7 +1401,9 @@ class _DailyTimeFlowCardState extends State<DailyTimeFlowCard> {
                 style: const TextStyle(fontSize: 16, height: 1.4),
               ),
               const SizedBox(height: 12),
+              ReadingPeriodDate(label: NineAreaPeriodSummary.dateLabel(widget.date)),
               if (data != null) ...[
+                DailyGraphVoidLegend(data: voidData, onRetry: retryVoid),
                 LayoutBuilder(
                   builder: (context, constraints) => SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -1409,15 +1419,15 @@ class _DailyTimeFlowCardState extends State<DailyTimeFlowCard> {
                         label: english
                             ? 'Five lines at seven times: overall, love, work, money and mental well-being.'
                             : '7時点の総合・恋愛・仕事・金運・メンタルの5本の線。',
-                        child: CustomPaint(
+                        child: CurrentGraphClock(axis: GraphNowAxis.daily(DateTime.parse(_request!.plan.targetDateJst)), nowUtc: widget.nowUtc, builder: (context, nowMarker) => CustomPaint(
                           key: const ValueKey('daily-seven-point-chart'),
-                          painter: FortuneFlowPainter(
+                          painter: FortuneFlowPainter(nowMarker: nowMarker, voidBands: voidData.bands,
                             textScaler: MediaQuery.textScalerOf(context),
                             series: data.series,
                             labels: data.labels,
                           ),
                           child: const SizedBox.expand(),
-                        ),
+                        )),
                       ),
                     ),
                   ),
@@ -1433,6 +1443,9 @@ class _DailyTimeFlowCardState extends State<DailyTimeFlowCard> {
                 ),
                 AdditionalFortuneTrendChart(
                   key: const ValueKey('daily-seven-point-additional'),
+                  voidBands: voidData.bands,
+                  nowAxis: GraphNowAxis.daily(DateTime.parse(_request!.plan.targetDateJst)),
+                  nowUtc: widget.nowUtc,
                   dataIdentity: data,
                   basis: english
                       ? 'The existing daily formula is applied at each sampled time. Eight numeric areas remain unchanged; felt experience stays categorical. Experimental and unvalidated.'
@@ -1487,7 +1500,7 @@ class _DailyTimeFlowCardState extends State<DailyTimeFlowCard> {
             ),
           ),
       ],
-    );
+    ));
   }
 
   Widget _buildTimeline(BuildContext context) {

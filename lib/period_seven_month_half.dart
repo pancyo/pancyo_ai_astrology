@@ -895,11 +895,11 @@ class MonthHalfDailyTrend extends StatelessWidget {
                   label: english
                       ? 'Five lines: overall, love, work, money and mental well-being.'
                       : '総合・恋愛・仕事・金運・メンタルの5本の線。',
-                  child: CustomPaint(
+                  child: CurrentGraphClock(axis: GraphNowAxis.days(days.map((day) => DateTime.parse(day.startDateJst))), builder: (context, nowMarker) => CustomPaint(
                     key: ValueKey(
                       weekly ? 'weekly-daily-chart' : 'half-month-chart',
                     ),
-                    painter: FortuneFlowPainter(
+                    painter: FortuneFlowPainter(nowMarker: nowMarker,
                       textScaler: MediaQuery.textScalerOf(context),
                       series: series,
                       labels: labels
@@ -907,7 +907,7 @@ class MonthHalfDailyTrend extends StatelessWidget {
                           .toList(),
                     ),
                     child: const SizedBox.expand(),
-                  ),
+                  )),
                 ),
               ),
             ),
@@ -921,7 +921,9 @@ class MonthHalfDailyTrend extends StatelessWidget {
                 _FlowLegend(label: item.label, color: item.color),
             ],
           ),
+          ReadingPeriodDate(label: readingPeriodRange(summary), marker: true),
           AdditionalFortuneTrendChart(
+            nowAxis: GraphNowAxis.days(days.map((day) => DateTime.parse(day.startDateJst))),
             key: ValueKey(
               weekly ? 'weekly-daily-additional' : 'half-month-additional',
             ),

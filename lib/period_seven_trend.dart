@@ -274,9 +274,9 @@ class _PeriodSevenGroupedTrendViewState
                     label: english
                         ? '$subtitle. Five lines: overall, love, work, money and mental well-being.'
                         : '$subtitle。総合・恋愛・仕事・金運・メンタルの5本の線。',
-                    child: CustomPaint(
+                    child: CurrentGraphClock(axis: _data.mode == LongRangeMode.week ? GraphNowAxis.weeks(_data.dates) : GraphNowAxis.months(_data.dates), builder: (context, nowMarker) => CustomPaint(
                       key: const ValueKey('period-grouped-trend-chart'),
-                      painter: FortuneFlowPainter(
+                      painter: FortuneFlowPainter(nowMarker: nowMarker,
                         textScaler: MediaQuery.textScalerOf(context),
                         series: _data.series,
                         labels: _data.labels
@@ -286,7 +286,7 @@ class _PeriodSevenGroupedTrendViewState
                             .toList(),
                       ),
                       child: const SizedBox.expand(),
-                    ),
+                    )),
                   ),
                 ),
               );
@@ -311,6 +311,7 @@ class _PeriodSevenGroupedTrendViewState
           ),
           AdditionalFortuneTrendChart(
             key: const ValueKey('period-grouped-trend-additional'),
+            nowAxis: _data.mode == LongRangeMode.week ? GraphNowAxis.weeks(_data.dates) : GraphNowAxis.months(_data.dates),
             dataIdentity: _data,
             basis: basis,
             dataFor: () => _data.additional,

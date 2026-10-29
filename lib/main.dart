@@ -85,6 +85,7 @@ part 'relationship_reading.dart';
 part 'relationship_share_card.dart';
 part 'astrology_calendar.dart';
 part 'astrology_calendar_presentation.dart';
+part 'calendar_phone_week_rows.dart';
 part 'astrology_calendar_share.dart';
 part 'reading_feature_entrypoints.dart';
 part 'english_nine_area_detail.dart';
@@ -93,6 +94,9 @@ part 'reading_sky_copy.dart';
 part 'forecast_explanation.dart';
 part 'overall_area_highlights.dart';
 part 'simple_reading_dashboard.dart';
+part 'reading_period_labels.dart';
+part 'graph_now_marker.dart';
+part 'daily_graph_void.dart';
 part 'consult_navigation_v2.dart';
 part 'consult_period_navigation_v2.dart';
 part 'fortune_share_card.dart';
@@ -12621,6 +12625,7 @@ class NineAreaGrid extends StatelessWidget {
           if (depth == ReadingDepth.simple &&
               MediaQuery.sizeOf(context).shortestSide >= 600)
             SimpleNineAreaDashboard(
+              periodLabel: NineAreaPeriodSummary.dateLabel(forecastDate),
               items: [
                 for (final prediction in predictions)
                   SimpleNineAreaItem(
@@ -12704,6 +12709,7 @@ class NineAreaGrid extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 12),
+                      ReadingPeriodDate(label: NineAreaPeriodSummary.dateLabel(forecastDate)),
                       ...rows(front),
                     ],
                   ),
@@ -12727,6 +12733,7 @@ class NineAreaGrid extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    ReadingPeriodDate(label: NineAreaPeriodSummary.dateLabel(forecastDate)),
                     ...rows(back),
                   ],
                 ],
@@ -13311,10 +13318,10 @@ class DailyFortuneTrendChart extends StatelessWidget {
           const SizedBox(height: 12),
           SizedBox(
             height: 220,
-            child: CustomPaint(
-              painter: FortuneFlowPainter(series: series, labels: labels),
+            child: CurrentGraphClock(axis: GraphNowAxis.days(dates), builder: (context, nowMarker) => CustomPaint(
+              painter: FortuneFlowPainter(nowMarker: nowMarker,series: series, labels: labels),
               child: const SizedBox.expand(),
-            ),
+            )),
           ),
           const SizedBox(height: 12),
           Wrap(
@@ -13328,6 +13335,7 @@ class DailyFortuneTrendChart extends StatelessWidget {
           ),
           if (useSeparateMental)
             AdditionalFortuneTrendChart(
+              nowAxis: GraphNowAxis.days(dates),
               dataIdentity: (
                 startDate,
                 contextFor,
@@ -15364,7 +15372,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
     if (!widget.active) return const SizedBox.shrink();
     final now = DateTime.now().toUtc().add(DailySevenTimepointPlan.jstOffset);
     final today = DateTime.utc(now.year, now.month, now.day);
-    final currentWeekStart = today.subtract(Duration(days: today.weekday - 1));
+    final currentWeekStart = today.subtract(Duration(days: today.weekday % 7));
     final targetWeek = currentWeekStart.add(Duration(days: _weekOffset * 7));
     final targetWeekEnd = targetWeek.add(const Duration(days: 6));
     final targetMonth = DateTime.utc(now.year, now.month + _monthOffset);
@@ -15439,7 +15447,7 @@ class _LongRangeReadingState extends State<LongRangeReading> {
         } else {
           final selectedDay = DateTime.utc(value.year, value.month, value.day);
           final selectedWeek = selectedDay.subtract(
-            Duration(days: selectedDay.weekday - 1),
+            Duration(days: selectedDay.weekday % 7),
           );
           _weekOffset = selectedWeek.difference(currentWeekStart).inDays ~/ 7;
         }
@@ -17524,8 +17532,8 @@ class _LongRangeChartState extends State<LongRangeChart> {
           const SizedBox(height: 12),
           SizedBox(
             height: 220,
-            child: CustomPaint(
-              painter: FortuneFlowPainter(
+            child: CurrentGraphClock(axis: widget.mode == LongRangeMode.week ? GraphNowAxis.weeks(_pointDates()) : _showDecade ? GraphNowAxis.years(_pointDates().map((d) => d.year)) : GraphNowAxis.months(_pointDates()), builder: (context, nowMarker) => CustomPaint(
+              painter: FortuneFlowPainter(nowMarker: nowMarker,
                 series: series,
                 labels: labels
                     .map((label) => periodTrendAxisLabel(label, strings))
@@ -17535,7 +17543,7 @@ class _LongRangeChartState extends State<LongRangeChart> {
                     : null,
               ),
               child: const SizedBox.expand(),
-            ),
+            )),
           ),
           const SizedBox(height: 12),
           Wrap(
@@ -17549,6 +17557,7 @@ class _LongRangeChartState extends State<LongRangeChart> {
           ),
           if (widget.summaryForStart != null || _result?.additional != null)
             AdditionalFortuneTrendChart(
+              nowAxis: widget.mode == LongRangeMode.week ? GraphNowAxis.weeks(_pointDates()) : _showDecade ? GraphNowAxis.years(_pointDates().map((d) => d.year)) : GraphNowAxis.months(_pointDates()),
               dataIdentity: (
                 widget.mode,
                 widget.weekStart.year,
@@ -17702,10 +17711,14 @@ class FortuneFlowPainter extends CustomPainter {
     this.textScaler = TextScaler.noScaling,
     this.diagnosticRequest,
     this.diagnosticAdditionalData,
+    this.nowMarker,
+    this.voidBands = const [],
   });
 
   final List<FortuneFlowSeries> series;
   final List<String> labels;
+  final GraphNowMarker? nowMarker;
+  final List<GraphVoidBand> voidBands;
   final TextScaler textScaler;
 
   static double chartHeight(TextScaler scaler) =>
@@ -17717,7 +17730,7 @@ class FortuneFlowPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final left = math.max(34.0, textScaler.scale(34));
     final right = math.max(12.0, textScaler.scale(12));
-    final top = math.max(12.0, textScaler.scale(12));
+    final top = math.max(32.0, textScaler.scale(32));
     final bottom = math.max(42.0, textScaler.scale(42));
     final chart = Rect.fromLTWH(
       left,
@@ -17726,6 +17739,7 @@ class FortuneFlowPainter extends CustomPainter {
       size.height - top - bottom,
     );
 
+    paintGraphVoidBands(canvas, chart, voidBands);
     final gridPaint = Paint()
       ..color = Colors.white.withValues(alpha: 0.10)
       ..strokeWidth = 1;
@@ -17749,8 +17763,9 @@ class FortuneFlowPainter extends CustomPainter {
       labelPainter.paint(canvas, Offset(4, y - labelPainter.height / 2));
     }
 
+    paintGraphNowMarker(canvas, size, chart, nowMarker, textScaler);
     for (var i = 0; i < labels.length; i++) {
-      final x = chart.left + chart.width * i / (labels.length - 1);
+      final x = chart.left + chart.width * i / math.max(1, labels.length - 1);
       labelPainter.text = TextSpan(
         text: labels[i],
         style: TextStyle(
@@ -17762,7 +17777,7 @@ class FortuneFlowPainter extends CustomPainter {
       labelPainter.layout();
       labelPainter.paint(
         canvas,
-        Offset(x - labelPainter.width / 2, chart.bottom + 8),
+        Offset(graphAxisLabelLeft(x, labelPainter.width, size.width), chart.bottom + 8),
       );
     }
 
@@ -17819,7 +17834,7 @@ class FortuneFlowPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant FortuneFlowPainter oldDelegate) {
-    return oldDelegate.series != series || oldDelegate.labels != labels ||
+    return oldDelegate.voidBands != voidBands || oldDelegate.nowMarker?.position != nowMarker?.position || oldDelegate.nowMarker?.label != nowMarker?.label || oldDelegate.series != series || oldDelegate.labels != labels ||
         oldDelegate.textScaler != textScaler;
   }
 }

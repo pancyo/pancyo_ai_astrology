@@ -1109,7 +1109,7 @@ class _AstrologyCalendarViewState extends State<AstrologyCalendarView> {
     }
   }
 
-  Future<void> _loadVisibleMonthEvents() async {
+  Future<void> _loadVisibleMonthEvents({List<String>? dates}) async {
     if (_monthBatchRunning) {
       _cancelMonthBatch();
       if (_selectedData == null) _loadSelected(force: true);
@@ -1123,14 +1123,14 @@ class _AstrologyCalendarViewState extends State<AstrologyCalendarView> {
     final year = _visibleMonthUtc.year;
     final month = _visibleMonthUtc.month;
     final days = DateTime.utc(year, month + 1, 0).day;
-    final dateKeys = [
+    final dateKeys = dates ?? [
       for (var day = 1; day <= days; day++)
         _AstrologyCalendarCivilDate(year, month, day).key,
     ];
     setState(() {
       _monthBatchRunning = true;
       _monthBatchCompleted = 0;
-      _monthBatchTotal = days;
+      _monthBatchTotal = dateKeys.length;
       _monthCurrentDate = null;
       _monthFailures.removeAll(dateKeys);
       _selectedData = _sharedReadCache[_cacheKey(_selected.key)];
@@ -1332,7 +1332,9 @@ class _AstrologyCalendarViewState extends State<AstrologyCalendarView> {
         ],
       ),
       body: SafeArea(
-        child: tablet && !_showAgenda
+        child: !tablet && !_showAgenda
+            ? _phoneWeekCalendar(english, canGoPrevious, canGoNext)
+            : tablet && !_showAgenda
             ? _tabletMonth(today, english, canGoPrevious, canGoNext)
             : SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(14, 8, 14, 20),
@@ -1508,6 +1510,73 @@ class _AstrologyCalendarViewState extends State<AstrologyCalendarView> {
       )),
       actions: [TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: Text(english ? 'Close' : '閉じる'))],
     ));
+  }
+
+  List<DateTime> get _phoneWeekDates => astrologyCalendarPhoneWeekDates(
+    DateTime.utc(_selected.year, _selected.month, _selected.day));
+
+  void _movePhoneWeek(int offset) {
+    final date = DateTime.utc(_selected.year, _selected.month, _selected.day)
+        .add(Duration(days: offset * 7));
+    if (date.year < _calendarMinimumYear || date.year > _calendarMaximumYear) return;
+    _cancelMonthBatch();
+    _select(_AstrologyCalendarCivilDate(date.year, date.month, date.day));
+  }
+
+  Widget _phoneWeekCalendar(bool english, bool previousMonth, bool nextMonth) {
+    final dates = _phoneWeekDates;
+    final first = dates.first;
+    final last = dates.last;
+    final selected = DateTime.utc(_selected.year, _selected.month, _selected.day);
+    final rows = [for (final date in dates) () {
+      final civil = _AstrologyCalendarCivilDate(date.year, date.month, date.day);
+      return AstrologyCalendarPhoneDay(date: date,
+        supported: date.year >= _calendarMinimumYear && date.year <= _calendarMaximumYear,
+        data: _sharedReadCache[_cacheKey(civil.key)],
+        failed: _monthFailures.contains(civil.key),
+        loading: (_monthBatchRunning && _monthCurrentDate == civil.key) || (_loading && _selected == civil));
+    }()];
+    return SingleChildScrollView(
+      key: const ValueKey('astrology-calendar-phone-week-scroll'),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          IconButton(tooltip: english ? 'Previous month' : '前月', onPressed: previousMonth ? () => _moveMonth(-1) : null, icon: const Icon(Icons.chevron_left)),
+          Expanded(child: Text(_astrologyCalendarMonthLabel(_visibleMonthUtc.year, _visibleMonthUtc.month, english),
+            textAlign: TextAlign.center, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800))),
+          IconButton(tooltip: english ? 'Next month' : '翌月', onPressed: nextMonth ? () => _moveMonth(1) : null, icon: const Icon(Icons.chevron_right)),
+        ]),
+        Row(children: [
+          IconButton(key: const ValueKey('calendar-phone-previous-week'), tooltip: english ? 'Previous week' : '前の週',
+            onPressed: first.year >= _calendarMinimumYear ? () => _movePhoneWeek(-1) : null, icon: const Icon(Icons.arrow_back)),
+          Expanded(child: Text('${first.month}/${first.day}–${last.month}/${last.day}',
+            key: const ValueKey('calendar-phone-week-range'), textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800))),
+          IconButton(key: const ValueKey('calendar-phone-next-week'), tooltip: english ? 'Next week' : '次の週',
+            onPressed: last.year <= _calendarMaximumYear ? () => _movePhoneWeek(1) : null, icon: const Icon(Icons.arrow_forward)),
+        ]),
+        Wrap(spacing: 4, runSpacing: 2, children: [
+          TextButton.icon(onPressed: _goToToday, icon: const Icon(Icons.today_outlined), label: Text(english ? 'Today' : '今日')),
+          TextButton.icon(key: const ValueKey('calendar-phone-week-load'),
+            onPressed: () => _loadVisibleMonthEvents(dates: [for (final day in rows) if (day.supported) day.date.toIso8601String().substring(0, 10)]),
+            icon: Icon(_monthBatchRunning ? Icons.stop_circle_outlined : Icons.refresh),
+            label: Text(_monthBatchRunning ? '$_monthBatchCompleted/$_monthBatchTotal ${english ? 'Stop' : '中止'}' : (english ? 'Load week' : 'この週を取得'))),
+          TextButton(key: const ValueKey('astrology-calendar-month-load'), onPressed: () => _loadVisibleMonthEvents(), child: Text(english ? 'Load full month' : '全月を取得')),
+          IconButton(key: const ValueKey('astrology-calendar-share-preview'), tooltip: english ? 'Save / share month images' : '月の画像を保存・共有', onPressed: _monthBatchRunning ? null : _previewMonthImages, icon: const Icon(Icons.image_outlined)),
+          IconButton(key: const ValueKey('astrology-calendar-agenda-mode'), tooltip: english ? 'Event list' : 'イベント一覧',
+            onPressed: () { setState(() => _showAgenda = true); if (!_monthBatchRunning) _loadVisibleMonthEvents(); }, icon: const Icon(Icons.list_alt)),
+        ]),
+        if (_monthBatchRunning) LinearProgressIndicator(value: _monthBatchTotal == 0 ? null : _monthBatchCompleted / _monthBatchTotal),
+        const SizedBox(height: 8),
+        AstrologyCalendarPhoneWeekRows(days: rows, english: english,
+          fontSize: _calendarTextSize, selected: selected,
+          onOpenDay: (date) => _openTabletDay(_AstrologyCalendarCivilDate(date.year, date.month, date.day), english)),
+        const SizedBox(height: 8),
+        Text(english ? 'JST (UTC+09:00) · Tap a date for all events · prev/next day = continuation'
+          : 'JST（UTC+09:00）・日付タップで詳しく・前日／翌日はボイドの継続',
+          key: const ValueKey('astrology-calendar-legend'), style: const TextStyle(fontSize: 12, color: Colors.white70)),
+      ]),
+    );
   }
 
   Widget _tabletMonth(_AstrologyCalendarCivilDate today, bool english, bool previous, bool next) {

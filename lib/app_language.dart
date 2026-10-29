@@ -175,8 +175,8 @@ class AppStrings {
   String text(AppText key) => switch (key) {
     AppText.appTitle => _pick('ぱんちょ式 超本格占星術占い', 'Pancyo Astrology'),
     AppText.testAppTitle => _pick(
-      'ぱんちょ式星占い（改修テスト）',
-      'Pancyo Astrology (test build)',
+      'ぱんちょ式星占い（研究版）',
+      'Pancyo Astrology (Research)',
     ),
     AppText.settings => _pick('設定', 'Settings'),
     AppText.profile => _pick('プロフィール', 'Profile'),

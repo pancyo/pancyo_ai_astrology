@@ -78,8 +78,10 @@ class SimpleNineAreaDashboard extends StatelessWidget {
     required this.shareOverallKey,
     this.onShareSummary,
     this.onShareOverall,
+    this.periodLabel,
   });
 
+  final String? periodLabel;
   final List<SimpleNineAreaItem> items;
   final OverallAreaHighlights highlights;
   final Key mainFiveKey, additionalFourKey;
@@ -151,6 +153,7 @@ class SimpleNineAreaDashboard extends StatelessWidget {
               english ? 'Five main categories' : '主要5項目',
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
             ),
+            if (periodLabel != null) ReadingPeriodDate(label: periodLabel!),
             const SizedBox(height: 12),
             if (main.isNotEmpty) tile(main.first),
             if (main.length > 1) ...[
@@ -172,6 +175,7 @@ class SimpleNineAreaDashboard extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                 ),
               ),
+              if (periodLabel != null) ReadingPeriodDate(label: periodLabel!),
               const SizedBox(height: 12),
               pairs(additional),
               const SizedBox(height: 12),

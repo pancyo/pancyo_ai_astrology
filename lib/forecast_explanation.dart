@@ -259,12 +259,12 @@ class ForecastExplanation {
     bool concise = false,
   }) {
     final singleDay = summary is PeriodSevenSummary && summary.isSingleDay;
-    final fiveYear = summary is LongRangeDisplaySummary && summary.isFiveYear;
+    final fiveYear = summary is LongRangeDisplaySummary && summary.isTenYear;
     final scope = copy.pick(
       singleDay
           ? 'この日'
           : fiveYear
-          ? 'この5年間'
+          ? 'この10年間'
           : switch (summary.mode) {
               LongRangeMode.week => 'この週',
               LongRangeMode.month => 'この月',
@@ -273,7 +273,7 @@ class ForecastExplanation {
       singleDay
           ? 'This day'
           : fiveYear
-          ? 'These five years'
+          ? 'These ten years'
           : switch (summary.mode) {
               LongRangeMode.week => 'This week',
               LongRangeMode.month => 'This month',
@@ -389,7 +389,7 @@ class ForecastExplanation {
     _ForecastExplanationCopy copy,
   ) {
     final jst = date.toUtc().add(const Duration(hours: 9));
-    if (summary is LongRangeDisplaySummary && summary.isFiveYear) {
+    if (summary is LongRangeDisplaySummary && summary.isTenYear) {
       return copy.pick('${jst.year}年', '${jst.year}');
     }
     if (summary is PeriodSevenSummary) {

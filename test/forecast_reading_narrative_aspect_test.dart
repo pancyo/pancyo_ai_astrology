@@ -377,8 +377,8 @@ void main() {
           samples: raw,
         );
         final samples = {
-          for (final entry in raw.entries)
-            NineAreaPeriodSummary.dateLabel(entry.key): entry.value,
+          for (final date in summary.dates)
+            NineAreaPeriodSummary.dateLabel(date): raw[date]!,
         };
         for (final language in AppLanguage.values) {
           for (final area in summary.areas) {
@@ -414,10 +414,10 @@ void main() {
               expect(
                 text,
                 contains(
-                  language == AppLanguage.ja ? 'この5年間' : 'These five years',
+                  language == AppLanguage.ja ? 'この10年間' : 'These ten years',
                 ),
               );
-              expect(text, contains('2030'));
+              expect(text, contains('2035'));
             }
           }
         }

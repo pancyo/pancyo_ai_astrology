@@ -769,7 +769,7 @@ void main() {
   // Explicit regression: unlike the real-context roundtrip tests above, this
   // fixture pins activity to 69. All other daily displayed values remain intact;
   // the six-area overall score is not recomputed or replaced.
-  for (final mode in ['daily', 'week', 'month', 'year', 'fiveYear']) {
+  for (final mode in ['daily', 'week', 'month', 'year', 'tenYear']) {
     testWidgets(
       'activity 69 stays in care for $mode Simple shares and Detailed cards',
       (tester) async {
@@ -903,8 +903,8 @@ void main() {
                     depth: depth,
                     details: sevenFixtureDetails,
                     dailySamples: {
-                      for (final row in samples.entries)
-                        NineAreaPeriodSummary.dateLabel(row.key): row.value,
+                      for (final date in summary.dates)
+                        NineAreaPeriodSummary.dateLabel(date): samples[date]!,
                     },
                   ),
                 ),
@@ -1034,8 +1034,8 @@ void main() {
         );
         final samples = {for (final instant in request.dates) instant: daily};
         final dailySamples = {
-          for (final row in samples.entries)
-            NineAreaPeriodSummary.dateLabel(row.key): row.value,
+          for (final date in request.summaryDates)
+            NineAreaPeriodSummary.dateLabel(date): samples[date]!,
         };
         final summary = LongRangeDisplaySummary.fromSamples(
           request: request,

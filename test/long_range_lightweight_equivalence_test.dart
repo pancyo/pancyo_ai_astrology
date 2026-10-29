@@ -140,9 +140,9 @@ void main() {
   tearDown(() => HouseSystemSettings.current.value = previousHouse);
 
   for (final row in [
-    (LongRangeDisplayMode.month, 5),
+    (LongRangeDisplayMode.month, 35),
     (LongRangeDisplayMode.year, 24),
-    (LongRangeDisplayMode.fiveYear, 120),
+    (LongRangeDisplayMode.tenYear, 240),
   ]) {
     test(
       '${row.$1.name}: exact host-provider scores, traces and raw aggregation for all ${row.$2} samples',
@@ -215,7 +215,8 @@ void main() {
           if (area.key == NineAreaKey.felt) {
             expect(area.score, isNull);
             final counts = <String, int>{};
-            for (final daily in baseline.values) {
+            for (final date in lightRequest.summaryDates)
+              for (final daily in [baseline[date]!]) {
               final label = daily
                   .singleWhere((p) => p.key == NineAreaKey.felt)
                   .feltForecast!
@@ -231,15 +232,16 @@ void main() {
             }
           } else {
             final raw = [
-              for (final values in baseline.values)
+              for (final date in lightRequest.summaryDates)
+                for (final values in [baseline[date]!])
                 values.singleWhere((p) => p.key == area.key).score!,
             ];
             expect(area.samples, raw);
             expect(
               area.score,
-              (raw.reduce((a, b) => a + b) / row.$2).round(),
+              (raw.reduce((a, b) => a + b) / lightRequest.summaryDates.length).round(),
               reason:
-                  'One rounding of all ${row.$2} raw values, including the complete 120-point five-year population.',
+                  'One rounding of all ${row.$2} raw values, including the complete 240-point ten-year population.',
             );
           }
         }

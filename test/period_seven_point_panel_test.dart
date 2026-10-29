@@ -235,7 +235,8 @@ void main() {
                 startMonthlyReadingJob: monthStarter,
                 startLongRangeDisplayJob: (request, progress) {
                   expect(request.mode, LongRangeDisplayMode.month);
-                  expect(request.dates.length, 5);
+                  expect(request.summaryDates.length, 5);
+                  expect(request.monthWeeks.length, 5);
                   final job = _PendingDisplay();
                   jobs.add(job);
                   return job;

@@ -378,6 +378,7 @@ class _PeriodSevenOverviewState extends State<PeriodSevenOverview>
           if (widget.depth == ReadingDepth.simple &&
               MediaQuery.sizeOf(context).shortestSide >= 600)
             SimpleNineAreaDashboard(
+              periodLabel: readingPeriodRange(summary),
               items: [
                 for (final area in summary.areas)
                   SimpleNineAreaItem(
@@ -487,6 +488,7 @@ class _PeriodSevenOverviewState extends State<PeriodSevenOverview>
                       ),
                     ),
                     const SizedBox(height: 12),
+                    ReadingPeriodDate(label: readingPeriodRange(summary)),
                     cards(
                       summary.areas.where(
                         (area) => PeriodSevenGroupedTrendData.mainKeys.contains(
@@ -504,6 +506,7 @@ class _PeriodSevenOverviewState extends State<PeriodSevenOverview>
                       ),
                     ),
                     const SizedBox(height: 12),
+                    ReadingPeriodDate(label: readingPeriodRange(summary)),
                     cards(
                       summary.areas.where(
                         (area) => !PeriodSevenGroupedTrendData.mainKeys
@@ -615,8 +618,8 @@ String nineAreaPeriodShareLabel(
         '${summary.dates.first.year}-${summary.dates.first.month.toString().padLeft(2, '0')} · ${en ? 'Monthly reading' : '月間占い'}',
       LongRangeDisplayMode.year =>
         '${summary.startYear} · ${en ? 'Yearly reading' : '年間占い'}',
-      LongRangeDisplayMode.fiveYear =>
-        '${summary.startYear}–${summary.endYear} · ${en ? 'Five-year reading' : '5年運'}',
+      LongRangeDisplayMode.tenYear =>
+        '${summary.startYear}–${summary.endYear} · ${en ? 'Ten-year reading' : '10年運'}',
       LongRangeDisplayMode.week => throw StateError(
         'Weekly display summaries use the seven-point route.',
       ),

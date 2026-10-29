@@ -102,29 +102,18 @@ class PendingWeek implements WeeklyDailyConsultExportOperation {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('only five, twenty-four and one hundred twenty exact UTC03 samples', () {
-    for (final row in [
-      (2026, 2, 28),
-      (2028, 2, 29),
-      (2026, 4, 30),
-      (2026, 12, 31),
-    ]) {
-      final r = request(
-        LongRangeDisplayMode.month,
-        year: row.$1,
-        month: row.$2,
-      );
-      expect(r.fullContext, true);
-      expect(r.dates.map((d) => d.day), [1, 8, 15, 22, row.$3]);
+  test('only five, twenty-four and two hundred forty exact UTC03 samples', () {
+    for (final row in [(2026,2,28),(2028,2,29),(2026,4,30),(2026,12,31)]) {
+      final r = request(LongRangeDisplayMode.month, year: row.$1, month: row.$2);
+      expect(r.summaryDates.map((d) => d.day), [1,8,15,22,row.$3]);
       expect(r.dates.every((d) => d.isUtc && d.hour == 3), true);
-      final values = raw(r, (i) => [50, 60, 70, 80, 99][i]);
-      final trend = LongRangeDisplayTrendData.fromSamples(
-        request: r,
-        samples: values,
-      );
-      expect(trend.labels, ['1–7', '8–14', '15–21', '22–${row.$3}']);
-      expect(trend.series.first.values, [50, 60, 70, 90]);
-      expect(trend.additional.series.first.values, [50, 60, 70, 90]);
+      final values = raw(r, (i) => 50 + i % 49);
+      final trend = LongRangeDisplayTrendData.fromSamples(request:r,samples:values);
+      expect(trend.labels, hasLength(5));
+      final means = [for(final week in r.monthWeeks)
+        (week.map((d) => values[d]!.first.score!).reduce((a,b)=>a+b)/7).round()];
+      expect(trend.series.first.values,means);
+      expect(trend.additional.series.first.values,means);
     }
     final year = request(LongRangeDisplayMode.year);
     expect(year.fullContext, true);
@@ -140,25 +129,30 @@ void main() {
     expect(trend.additional.series.first.values, trend.series.first.values);
     final five = request(LongRangeDisplayMode.fiveYear, year: 2028);
     expect(five.fullContext, true);
-    expect(five.dates, hasLength(120));
+    expect(five.dates, hasLength(240));
     expect(five.dates.map((d) => d.year).toSet(), {
       2028,
       2029,
       2030,
       2031,
       2032,
+      2033,
+      2034,
+      2035,
+      2036,
+      2037,
     });
-    expect(five.dates.toSet(), hasLength(120));
+    expect(five.dates.toSet(), hasLength(240));
   });
 
   test(
-    'five-year body rounds 120 raw scores once; graph uses annual summaries',
+    'ten-year body rounds 240 raw scores once; graph uses annual summaries',
     () {
       final r = request(LongRangeDisplayMode.fiveYear);
       final values = raw(
         r,
         (i) => i < 72 && i % 24 >= 12 ? 51 : 50,
-        felt: (i) => i < 60 ? '良い' : '悪い',
+        felt: (i) => i < 120 ? '良い' : '悪い',
       );
       final summary = LongRangeDisplaySummary.fromSamples(
         request: r,
@@ -170,13 +164,13 @@ void main() {
       );
       expect(summary.isFiveYear, true);
       expect(summary.startYear, 2028);
-      expect(summary.endYear, 2032);
+      expect(summary.endYear, 2037);
       expect(summary.areas.take(8).map((a) => a.score), everyElement(50));
-      expect(summary.areas.first.samples, hasLength(120));
-      expect(trend.series.first.values, [51, 51, 51, 50, 50]);
+      expect(summary.areas.first.samples, hasLength(240));
+      expect(trend.series.first.values, [51, 51, 51, 50, 50, 50, 50, 50, 50, 50]);
       expect(summary.feltDisplayLabel, '混在');
-      expect(summary.feltCounts['良い'], 60);
-      expect(summary.feltCounts['悪い'], 60);
+      expect(summary.feltCounts['良い'], 120);
+      expect(summary.feltCounts['悪い'], 120);
       expect(summary.areas.last.score, isNull);
       expect(() => summary.toJson(), throwsUnsupportedError);
       final missing = LongRangeDisplaySummary.fromSamples(
@@ -184,7 +178,7 @@ void main() {
         samples: raw(r, (_) => 65, felt: (_) => null),
       );
       expect(missing.feltDisplayLabel, '未予測');
-      expect(missing.feltUnavailableCount, 120);
+      expect(missing.feltUnavailableCount, 240);
     },
   );
 
@@ -223,7 +217,7 @@ void main() {
   test(
     'complete years are reusable by year mode and cache is bounded and input scoped',
     () {
-      final cache = LongRangeDisplayCache(maxSamples: 120);
+      final cache = LongRangeDisplayCache(maxSamples: 240);
       final five = request(LongRangeDisplayMode.fiveYear);
       final all = recorded(five, raw(five, (_) => 70));
       expect(cache.seeds(five), isEmpty);
@@ -237,11 +231,11 @@ void main() {
       cache.publishCompletedYear(five, firstYear);
       expect(cache.seeds(request(LongRangeDisplayMode.year)), hasLength(24));
       cache.publish(five, completed(five, raw(five, (_) => 70)));
-      expect(cache.retainedSampleCount, 120);
+      expect(cache.retainedSampleCount, 240);
       final next = request(LongRangeDisplayMode.fiveYear, year: 2029);
-      expect(cache.seeds(next), hasLength(96));
+      expect(cache.seeds(next), hasLength(216));
       cache.publish(next, completed(next, raw(next, (_) => 70)));
-      expect(cache.retainedSampleCount, 120);
+      expect(cache.retainedSampleCount, 240);
       const other = AstroProfile(
         name: 'AnotherSynthetic',
         birthDate: '1990/1/2',
@@ -257,7 +251,7 @@ void main() {
   );
 
   test(
-    'host provider worker calculates 120 references and reuses completed samples',
+    'host provider worker calculates 240 references and reuses completed samples',
     () async {
       // This exercises the real selected host provider without selecting a
       // replacement provider. It is separate from the synthetic fixtures above.
@@ -281,31 +275,31 @@ void main() {
       ).result;
       firstWatch.stop();
       expect(first.matches(five), true);
-      expect(first.computedSampleCount, 120);
-      expect(first.samples, hasLength(120));
+      expect(first.computedSampleCount, 240);
+      expect(first.samples, hasLength(240));
       expect(first.summary.dates, five.dates);
-      expect(first.summary.dates.toSet(), hasLength(120));
+      expect(first.summary.dates.toSet(), hasLength(240));
       expect(
         first.summary.dates.every(
           (d) => d.isUtc && d.hour == 3 && d.minute == 0 && d.second == 0,
         ),
         true,
       );
-      expect(progress, [for (var done = 1; done <= 120; done++) (done, 120)]);
-      expect(readyYears, [2028, 2029, 2030, 2031, 2032]);
-      expect(first.trend.labels, ['2028', '2029', '2030', '2031', '2032']);
+      expect(progress, [for (var done = 1; done <= 240; done++) (done, 240)]);
+      expect(readyYears, [for(var year=2028;year<=2037;year++) year]);
+      expect(first.trend.labels, [for(var year=2028;year<=2037;year++) '$year']);
       expect(first.trend.series, hasLength(5));
-      expect(first.trend.series.every((s) => s.values.length == 5), true);
+      expect(first.trend.series.every((s) => s.values.length == 10), true);
       expect(
-        first.trend.additional.series.every((s) => s.values.length == 5),
+        first.trend.additional.series.every((s) => s.values.length == 10),
         true,
       );
-      expect(first.trend.additional.felt, hasLength(5));
+      expect(first.trend.additional.felt, hasLength(10));
       final retained = first.samples.values.first;
       expect(retained.sourceName, five.sourceName);
       expect(retained.usesHighPrecision, five.requireHighPrecision);
       expect(retained.precisionNotice, isNotEmpty);
-      for (final index in [0, 6, 119]) {
+      for (final index in [0, 6, 119, 239]) {
         final date = five.dates[index];
         final context = const AstrologyEngine().buildPreviewContext(
           profile: five.profile,
@@ -329,7 +323,7 @@ void main() {
           }
         }
       }
-      // Summary values must be means of the actual 120 daily scores, rounded
+      // Summary values must be means of the actual 240 daily scores, rounded
       // once, while each plotted year must use its own actual 24 samples.
       for (final key in NineAreaKey.values.where(
         (k) => k != NineAreaKey.felt,
@@ -342,7 +336,7 @@ void main() {
         ];
         expect(
           first.summary.areas.singleWhere((a) => a.key == key).score,
-          (values.reduce((a, b) => a + b) / 120).round(),
+          (values.reduce((a, b) => a + b) / 240).round(),
         );
         expect(
           first.summary.areas.singleWhere((a) => a.key == key).samples,
@@ -352,7 +346,7 @@ void main() {
             ? first.trend.series[key.index]
             : first.trend.additional.series[key.index - 5];
         expect(graphSeries.values, [
-          for (var yearIndex = 0; yearIndex < 5; yearIndex++)
+          for (var yearIndex = 0; yearIndex < 10; yearIndex++)
             (values
                         .sublist(yearIndex * 24, yearIndex * 24 + 24)
                         .reduce((a, b) => a + b) /
@@ -395,7 +389,7 @@ void main() {
       // ignore: avoid_print
       print(
         'LONG_RANGE_HOST_BENCH fixture=anonymous provider=${five.sourceName} '
-        'highprecision=${five.requireHighPrecision} total=120 '
+        'highprecision=${five.requireHighPrecision} total=240 '
         'computed_first=${first.computedSampleCount} elapsed_first_ms=${firstWatch.elapsedMilliseconds} '
         'computed_revisit=${revisit.computedSampleCount} elapsed_revisit_ms=${revisitWatch.elapsedMilliseconds} '
         'computed_year=${yearResult.computedSampleCount} elapsed_year_ms=${yearWatch.elapsedMilliseconds} '
@@ -457,7 +451,7 @@ void main() {
   );
 
   testWidgets(
-    'partial five-year graph shows only completed years and labels uncomputed years',
+    'partial ten-year graph shows only completed years and labels uncomputed years',
     (tester) async {
       final r = request(LongRangeDisplayMode.fiveYear);
       final all = recorded(r, raw(r, (_) => 70));
@@ -482,25 +476,25 @@ void main() {
         ),
       );
       expect(
-        find.byKey(const ValueKey('five-year-partial-chart')),
+        find.byKey(const ValueKey('ten-year-partial-chart')),
         findsOneWidget,
       );
       expect(
-        find.byKey(const ValueKey('five-year-ready-2028')),
+        find.byKey(const ValueKey('ten-year-ready-2028')),
         findsOneWidget,
       );
-      for (var year = 2029; year <= 2032; year++) {
-        expect(find.byKey(ValueKey('five-year-waiting-$year')), findsOneWidget);
+      for (var year = 2029; year <= 2037; year++) {
+        expect(find.byKey(ValueKey('ten-year-waiting-$year')), findsOneWidget);
       }
       expect(find.byType(NineAreaPeriodOverview), findsNothing);
-      await tester.tap(find.byKey(const ValueKey('five-year-ready-2028')));
+      await tester.tap(find.byKey(const ValueKey('ten-year-ready-2028')));
       await tester.pumpAndSettle();
       expect(find.byType(NineAreaPeriodOverview), findsOneWidget);
     },
   );
 
   testWidgets(
-    '390-wide English selected Week and five years stay on one line at standard text scale',
+    '390-wide English selected Week and ten years stay on one line at standard text scale',
     (tester) async {
       final originalLanguage = AppLanguageSettings.current.value;
       AppLanguageSettings.current.value = AppLanguage.en;
@@ -549,21 +543,21 @@ void main() {
         reason: 'Selected Week must not wrap into Wee / k.',
       );
       expect(tester.getSize(week).height, lessThan(24));
-      await tester.tap(find.text('5 years'));
+      await tester.tap(find.text('10 years'));
       await tester.pump();
       await tester.pump();
       expect(
-        tester.getSize(find.text('5 years')).height,
+        tester.getSize(find.text('10 years')).height,
         tester.getSize(month).height,
         reason: 'Selected 5 years must not break inside the word.',
       );
-      expect(tester.getSize(find.text('5 years')).height, lessThan(24));
+      expect(tester.getSize(find.text('10 years')).height, lessThan(24));
       expect(tester.takeException(), isNull);
     },
   );
 
   testWidgets(
-    'ordinary month year and five-year UI requests the approved light path and displays matching results',
+    'ordinary month year and ten-year UI requests the approved light path and displays matching results',
     (tester) async {
       final originalLanguage = AppLanguageSettings.current.value;
       AppLanguageSettings.current.value = AppLanguage.en;
@@ -595,9 +589,9 @@ void main() {
       );
       await tester.pump();
       for (final row in [
-        ('Month', LongRangeDisplayMode.month, 5, 4),
+        ('Month', LongRangeDisplayMode.month, 5, 5),
         ('Year', LongRangeDisplayMode.year, 24, 12),
-        ('5 years', LongRangeDisplayMode.fiveYear, 120, 5),
+        ('10 years', LongRangeDisplayMode.tenYear, 240, 10),
       ]) {
         final priorCount = requests.length;
         await tester.ensureVisible(find.text(row.$1));
@@ -608,7 +602,7 @@ void main() {
         final uiRequest = requests.last;
         expect(uiRequest.mode, row.$2);
         expect(uiRequest.fullContext, false);
-        expect(uiRequest.dates, hasLength(row.$3));
+        expect(uiRequest.summaryDates, hasLength(row.$3));
         final fullRequest = LongRangeDisplayRequest(
           mode: uiRequest.mode,
           month: uiRequest.month,
@@ -720,7 +714,7 @@ void main() {
       expect(find.text('Week'), findsOneWidget);
       expect(find.text('Month'), findsOneWidget);
       expect(find.text('Year'), findsOneWidget);
-      expect(find.text('5 years'), findsOneWidget);
+      expect(find.text('10 years'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.tap(find.text('Month'));
       await tester.pump();
@@ -762,10 +756,10 @@ void main() {
             tester.widget<CustomPaint>(chartFinder).painter!
                 as FortuneFlowPainter;
         final pointCount = mode == LongRangeDisplayMode.month
-            ? 4
+            ? 5
             : mode == LongRangeDisplayMode.year
             ? 12
-            : 5;
+            : 10;
         expect(painter.labels, hasLength(pointCount));
         expect(painter.textScaler.scale(10), 20);
         expect(

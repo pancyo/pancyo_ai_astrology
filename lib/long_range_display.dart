@@ -1,7 +1,10 @@
 part of 'main.dart';
 
 /// Presentation periods are deliberately separate from the formal JSON enum.
-enum LongRangeDisplayMode { week, month, year, fiveYear }
+enum LongRangeDisplayMode { week, month, year, tenYear;
+  // Source compatibility only; existing five-year saved records are untouched.
+  static const fiveYear = tenYear;
+}
 
 class LongRangeDisplayRequest {
   LongRangeDisplayRequest({
@@ -38,8 +41,8 @@ class LongRangeDisplayRequest {
   /// This flag never changes a formal daily or period JSON calculation.
   final bool fullContext;
   int get endYear =>
-      startYear + (mode == LongRangeDisplayMode.fiveYear ? 4 : 0);
-  late final List<DateTime> dates = List.unmodifiable(
+      startYear + (mode == LongRangeDisplayMode.tenYear ? 9 : 0);
+  late final List<DateTime> summaryDates = List.unmodifiable(
     mode == LongRangeDisplayMode.month
         ? NineAreaPeriodSummary.sampleDates(
             LongRangeMode.month,
@@ -55,6 +58,10 @@ class LongRangeDisplayRequest {
               ),
           ],
   );
+
+  late final List<List<DateTime>> monthWeeks = monthlyReadingWeeks(month);
+  late final List<DateTime> dates = mode == LongRangeDisplayMode.month
+      ? List.unmodifiable((<DateTime>{...monthWeeks.expand((week) => week), ...summaryDates}.toList()..sort())) : summaryDates;
 
   late final String inputIdentity = sha256
       .convert(
@@ -129,7 +136,8 @@ class LongRangeDisplaySummary extends NineAreaPeriodSummary {
   final LongRangeDisplayMode displayMode;
   final int startYear, endYear;
   final String? sampleDescriptionJa, sampleDescriptionEn;
-  bool get isFiveYear => displayMode == LongRangeDisplayMode.fiveYear;
+  bool get isFiveYear => isTenYear; // legacy source alias
+  bool get isTenYear => displayMode == LongRangeDisplayMode.tenYear;
   static const aggregationVersion = 'long-range-display-sample-mean-v1';
 
   factory LongRangeDisplaySummary.fromSamples({
@@ -145,7 +153,7 @@ class LongRangeDisplaySummary extends NineAreaPeriodSummary {
       mode: request.mode,
       startYear: request.startYear,
       endYear: request.endYear,
-      dates: dates,
+      dates: request.summaryDates,
       samples: samples,
     );
   }
@@ -235,8 +243,8 @@ class LongRangeDisplaySummary extends NineAreaPeriodSummary {
   @override
   String get samplingText =>
       sampleDescriptionJa ??
-      (isFiveYear
-          ? '$startYear〜$endYear年の各月1日・15日、計120時点（12:00 JST）'
+      (isTenYear
+          ? '$startYear〜$endYear年の各月1日・15日、計240時点（12:00 JST）'
           : super.samplingText);
 
   @override
@@ -244,23 +252,23 @@ class LongRangeDisplaySummary extends NineAreaPeriodSummary {
       strings.language == AppLanguage.ja
       ? samplingText
       : sampleDescriptionEn ??
-            (isFiveYear
-                ? '120 samples from $startYear to $endYear: the first and fifteenth of each month, at 12:00 JST'
+            (isTenYear
+                ? '240 samples from $startYear to $endYear: the first and fifteenth of each month, at 12:00 JST'
                 : super.displaySamplingText(strings));
 
   @override
-  String reading(NineAreaPeriodEntry area) => isFiveYear
-      ? super.reading(area).replaceAll('この年', 'この5年間')
+  String reading(NineAreaPeriodEntry area) => isTenYear
+      ? super.reading(area).replaceAll('この年', 'この10年間')
       : super.reading(area);
 
   @override
   String displayReading(NineAreaPeriodEntry area, AppStrings strings) =>
       strings.language == AppLanguage.ja
       ? reading(area)
-      : isFiveYear
+      : isTenYear
       ? super
             .displayReading(area, strings)
-            .replaceAll('this year', 'these five years')
+            .replaceAll('this year', 'these ten years')
       : super.displayReading(area, strings);
 
   // This object is an in-memory presentation, never a formal consult record.
@@ -350,13 +358,13 @@ class LongRangeDisplayResult {
   final LongRangeDisplayTrendData trend;
   final int computedSampleCount;
   Map<String, List<NineAreaPrediction>> get dailySamples => Map.unmodifiable({
-    for (final entry in samples.entries)
-      NineAreaPeriodSummary.dateLabel(entry.key): entry.value.predictions,
+    for (final date in summary.dates)
+      NineAreaPeriodSummary.dateLabel(date): samples[date]!.predictions,
   });
   bool matches(LongRangeDisplayRequest request) =>
       requestIdentity == request.identity &&
       samples.length == request.dates.length &&
-      summary.dates.length == request.dates.length &&
+      summary.dates.length == request.summaryDates.length &&
       request.dates.every((date) {
         final sample = samples[date];
         return sample != null &&
@@ -371,7 +379,9 @@ class LongRangeDisplayResult {
 }
 
 class LongRangeDisplayTrendData {
-  LongRangeDisplayTrendData._(this.labels, this.series, this.additional);
+  LongRangeDisplayTrendData._(this.labels, this.series, this.additional, this.periodLabel, this.nowAxis);
+  final String periodLabel;
+  final GraphNowAxis nowAxis;
   final List<String> labels;
   final List<FortuneFlowSeries> series;
   final AdditionalFortuneTrendData additional;
@@ -382,17 +392,12 @@ class LongRangeDisplayTrendData {
   }) {
     final dates = request.dates;
     final groups = request.mode == LongRangeDisplayMode.month
-        ? <List<DateTime>>[
-            [dates[0]],
-            [dates[1]],
-            [dates[2]],
-            [dates[3], dates[4]],
-          ]
+        ? request.monthWeeks
         : request.mode == LongRangeDisplayMode.year
         ? [for (var i = 0; i < 24; i += 2) dates.sublist(i, i + 2)]
-        : [for (var i = 0; i < 120; i += 24) dates.sublist(i, i + 24)];
+        : [for (var i = 0; i < dates.length; i += 24) dates.sublist(i, i + 24)];
     final labels = request.mode == LongRangeDisplayMode.month
-        ? ['1–7', '8–14', '15–21', '22–${dates.last.day}']
+        ? [for (final week in groups) '${week.first.month}/${week.first.day}–${week.last.month}/${week.last.day}']
         : request.mode == LongRangeDisplayMode.year
         ? [for (var month = 1; month <= 12; month++) '$month月']
         : [
@@ -402,7 +407,7 @@ class LongRangeDisplayTrendData {
     final summaries = [
       for (var i = 0; i < groups.length; i++)
         LongRangeDisplaySummary._aggregate(
-          mode: request.mode == LongRangeDisplayMode.fiveYear
+          mode: request.mode == LongRangeDisplayMode.tenYear
               ? LongRangeDisplayMode.year
               : LongRangeDisplayMode.month,
           startYear: groups[i].first.year,
@@ -451,6 +456,14 @@ class LongRangeDisplayTrendData {
             ),
         ],
       ),
+      request.mode == LongRangeDisplayMode.month
+          ? readingCivilRange(groups.first.first, groups.last.last)
+          : readingCivilRange(DateTime.utc(request.startYear), DateTime.utc(request.endYear, 12, 31)),
+      request.mode == LongRangeDisplayMode.month
+          ? GraphNowAxis.weeks(request.monthWeeks.map((w) => w.first))
+          : request.mode == LongRangeDisplayMode.year
+          ? GraphNowAxis.months([for (var m = 1; m <= 12; m++) DateTime.utc(request.startYear, m)])
+          : GraphNowAxis.years([for (var y = request.startYear; y <= request.endYear; y++) y]),
     );
   }
 }
@@ -1006,12 +1019,12 @@ class _LongRangeOverviewPanelState extends State<LongRangeOverviewPanel>
                     : (en ? 'Stop' : '準備を中止'),
               ),
             ),
-            if (widget.request.mode == LongRangeDisplayMode.fiveYear) ...[
+            if (widget.request.mode == LongRangeDisplayMode.tenYear) ...[
               Text(
                 en
-                    ? 'The five-year summary is incomplete until all 120 reference samples are ready.'
-                    : '120の代表時点がそろうまで、5年間全体の占いは未完成です。',
-                key: const ValueKey('five-year-incomplete'),
+                    ? 'The ten-year summary is incomplete until all 240 reference samples are ready.'
+                    : '240の代表時点がそろうまで、10年間全体の占いは未完成です。',
+                key: const ValueKey('ten-year-incomplete'),
               ),
               const SizedBox(height: 12),
               LongRangePartialYearView(
@@ -1062,6 +1075,27 @@ class _LongRangeOverviewPanelState extends State<LongRangeOverviewPanel>
           details: widget.details,
           dailySamples: result.dailySamples,
         ),
+        if (widget.request.mode == LongRangeDisplayMode.tenYear)
+          Align(
+            alignment: Alignment.centerRight,
+            child: OutlinedButton.icon(
+              key: const ValueKey('ten-year-save-result'),
+              icon: const Icon(Icons.save_alt),
+              label: Text(en ? 'Save ten-year result JSON' : '10年分の結果JSONを保存'),
+              onPressed: () async {
+                try {
+                  final data = tenYearDisplayRecord(widget.request, result, strings, details: widget.details);
+                  final temp = await getTemporaryDirectory();
+                  final folder = await Directory(temp.path).createTemp('pancyo_ten_year_');
+                  final file = File('${folder.path}${Platform.pathSeparator}pancyo_ten_year_${widget.request.startYear}_${widget.request.endYear}_${DateTime.now().microsecondsSinceEpoch}.json');
+                  await file.writeAsString(const JsonEncoder.withIndent('  ').convert(data), flush: true);
+                  await Share.shareXFiles([XFile(file.path, mimeType: 'application/json')], subject: en ? 'Ten-year reading result' : '10年分の占い結果');
+                } catch (_) {
+                  if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(en ? 'Unable to export the ten-year result.' : '10年分の結果JSONを出力できませんでした。')));
+                }
+              },
+            ),
+          ),
       ],
     );
   }
@@ -1081,15 +1115,15 @@ class LongRangeDisplayTrendView extends StatelessWidget {
     final en = strings.language == AppLanguage.en;
     final basis = mode == LongRangeDisplayMode.month
         ? (en
-              ? 'Four intervals in this month; reference dates are 1, 8, 15, 22 and the last day. The final point averages the 22nd and last day.'
-              : 'この月の4区間。代表日は1・8・15・22・末日で、最後の点は22日と末日の平均です。')
+              ? 'Five complete Sunday–Saturday weeks ending with the week of month end. Each point averages seven noon-JST daily readings. The nine-category reading below still covers the calendar month.'
+              : '月末を含む週までの丸5週間を5点で表示。各点は日曜〜土曜7日の正午JST平均です。月境界を含むグラフと、暦の1か月を占う下の9項目は対象期間が異なります。')
         : mode == LongRangeDisplayMode.year
         ? (en
               ? '12 monthly points, each averaging the first and fifteenth at noon JST.'
               : '月ごとの12点。各点は1日・15日の正午JSTの平均です。')
         : (en
-              ? 'Five yearly points, each averaging 24 noon-JST reference samples.'
-              : '年ごとの5点。各点は各年24の正午JST代表時点の平均です。');
+              ? 'Ten yearly points, each averaging 24 noon-JST reference samples.'
+              : '年ごとの10点。各点は各年24の正午JST代表時点の平均です。');
     return GlassPanel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1099,6 +1133,7 @@ class LongRangeDisplayTrendView extends StatelessWidget {
             style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 8),
+          ReadingPeriodDate(label: data.periodLabel, marker: true),
           Text(
             basis,
             style: const TextStyle(fontSize: 12, color: Color(0xFFB8C6E0)),
@@ -1110,15 +1145,15 @@ class LongRangeDisplayTrendView extends StatelessWidget {
               child: SizedBox(
                 width: math.max(
                   constraints.maxWidth,
-                  MediaQuery.textScalerOf(context).scale(56) *
+                  MediaQuery.textScalerOf(context).scale(90) *
                       data.labels.length,
                 ),
                 height: FortuneFlowPainter.chartHeight(
                   MediaQuery.textScalerOf(context),
                 ),
-                child: CustomPaint(
+                child: CurrentGraphClock(axis: data.nowAxis, builder: (context, nowMarker) => CustomPaint(
                   key: const ValueKey('long-range-main-chart'),
-                  painter: FortuneFlowPainter(
+                  painter: FortuneFlowPainter(nowMarker: nowMarker,
                     series: data.series,
                     textScaler: MediaQuery.textScalerOf(context),
                     labels: data.labels
@@ -1126,7 +1161,7 @@ class LongRangeDisplayTrendView extends StatelessWidget {
                         .toList(),
                   ),
                   child: const SizedBox.expand(),
-                ),
+                )),
               ),
             ),
           ),
@@ -1140,6 +1175,7 @@ class LongRangeDisplayTrendView extends StatelessWidget {
             ],
           ),
           AdditionalFortuneTrendChart(
+            nowAxis: data.nowAxis,
             dataIdentity: data,
             dataFor: () => data.additional,
             basis: basis,
@@ -1204,15 +1240,15 @@ class _LongRangePartialYearViewState extends State<LongRangePartialYearView> {
             height: FortuneFlowPainter.chartHeight(
               MediaQuery.textScalerOf(context),
             ),
-            child: CustomPaint(
-              key: const ValueKey('five-year-partial-chart'),
-              painter: _LongRangePartialPainter(
+            child: CurrentGraphClock(axis: GraphNowAxis.years([for (var y = widget.request.startYear; y <= widget.request.endYear; y++) y]), builder: (context, nowMarker) => CustomPaint(
+              key: const ValueKey('ten-year-partial-chart'),
+              painter: _LongRangePartialPainter(nowMarker: nowMarker,
                 startYear: widget.request.startYear,
                 summaries: Map.unmodifiable(_summaries),
                 textScaler: MediaQuery.textScalerOf(context),
               ),
               child: const SizedBox.expand(),
-            ),
+            )),
           ),
           Wrap(
             spacing: 12,
@@ -1238,7 +1274,7 @@ class _LongRangePartialYearViewState extends State<LongRangePartialYearView> {
         )
           if (_summaries[year] case final summary?)
             ExpansionTile(
-              key: ValueKey('five-year-ready-$year'),
+              key: ValueKey('ten-year-ready-$year'),
               title: Text(en ? '$year · Ready' : '$year年 · 完了'),
               subtitle: Text(
                 en
@@ -1260,7 +1296,7 @@ class _LongRangePartialYearViewState extends State<LongRangePartialYearView> {
             )
           else
             ListTile(
-              key: ValueKey('five-year-waiting-$year'),
+              key: ValueKey('ten-year-waiting-$year'),
               title: Text(en ? '$year · Waiting' : '$year年 · 待機中'),
               subtitle: Text(
                 en ? 'No score is available yet.' : '点数はまだ計算されていません。',
@@ -1271,21 +1307,23 @@ class _LongRangePartialYearViewState extends State<LongRangePartialYearView> {
   }
 }
 
-/// Five fixed positions; missing years have neither a score nor a line segment.
+/// Ten fixed positions; missing years have neither a score nor a line segment.
 class _LongRangePartialPainter extends CustomPainter {
   const _LongRangePartialPainter({
     required this.startYear,
+    this.nowMarker,
     required this.summaries,
     required this.textScaler,
   });
   final int startYear;
+  final GraphNowMarker? nowMarker;
   final Map<int, LongRangeDisplaySummary> summaries;
   final TextScaler textScaler;
   @override
   void paint(Canvas canvas, Size size) {
     final left = math.max(34.0, textScaler.scale(34));
     final right = math.max(12.0, textScaler.scale(12));
-    final top = math.max(12.0, textScaler.scale(12));
+    final top = math.max(32.0, textScaler.scale(32));
     final bottom = math.max(42.0, textScaler.scale(42));
     final chart = Rect.fromLTWH(
       left,
@@ -1315,7 +1353,8 @@ class _LongRangePartialPainter extends CustomPainter {
       label.layout();
       label.paint(canvas, Offset(2, y(value) - label.height / 2));
     }
-    for (var i = 0; i < 5; i++) {
+    paintGraphNowMarker(canvas, size, chart, nowMarker, textScaler);
+    for (var i = 0; i < 10; i++) {
       label.text = TextSpan(
         text: '${startYear + i}',
         style: const TextStyle(color: Colors.white54, fontSize: 10),
@@ -1324,7 +1363,7 @@ class _LongRangePartialPainter extends CustomPainter {
       label.paint(
         canvas,
         Offset(
-          chart.left + chart.width * i / 4 - label.width / 2,
+          graphAxisLabelLeft(chart.left + chart.width * i / 9, label.width, size.width),
           chart.bottom + 8,
         ),
       );
@@ -1334,14 +1373,14 @@ class _LongRangePartialPainter extends CustomPainter {
         ..color = PeriodSevenGroupedTrendData.mainColors[areaIndex]
         ..strokeWidth = 2.6;
       Offset? previous;
-      for (var i = 0; i < 5; i++) {
+      for (var i = 0; i < 10; i++) {
         final summary = summaries[startYear + i];
         if (summary == null) {
           previous = null;
           continue;
         }
         final point = Offset(
-          chart.left + chart.width * i / 4,
+          chart.left + chart.width * i / 9,
           y(summary.areas[areaIndex].score!),
         );
         if (previous != null) canvas.drawLine(previous, point, paint);
@@ -1353,6 +1392,8 @@ class _LongRangePartialPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _LongRangePartialPainter oldDelegate) =>
+      oldDelegate.nowMarker?.position != nowMarker?.position ||
+      oldDelegate.nowMarker?.label != nowMarker?.label ||
       oldDelegate.startYear != startYear ||
       oldDelegate.summaries != summaries ||
       oldDelegate.textScaler != textScaler;
@@ -1360,7 +1401,7 @@ class _LongRangePartialPainter extends CustomPainter {
 
 class _LongRangeDisplayReadingState extends State<LongRangeReading> {
   LongRangeDisplayMode _mode = LongRangeDisplayMode.week;
-  int _weekOffset = 0, _monthOffset = 0, _yearOffset = 0, _fiveYearOffset = 0;
+  int _weekOffset = 0, _monthOffset = 0, _yearOffset = 0, _tenYearOffset = 0;
   bool _navigationBusy = false;
   @override
   void initState() {
@@ -1397,19 +1438,19 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
     final now = DateTime.now().toUtc().add(DailySevenTimepointPlan.jstOffset);
     final today = DateTime.utc(now.year, now.month, now.day);
     final week = today
-        .subtract(Duration(days: today.weekday - 1))
+        .subtract(Duration(days: today.weekday % 7))
         .add(Duration(days: 7 * _weekOffset));
     final month = DateTime.utc(now.year, now.month + _monthOffset);
     final year =
         now.year +
-        (_mode == LongRangeDisplayMode.fiveYear
-            ? _fiveYearOffset
+        (_mode == LongRangeDisplayMode.tenYear
+            ? _tenYearOffset
             : _yearOffset);
     final title = switch (_mode) {
       LongRangeDisplayMode.week => en ? 'Weekly readings' : '週間占い',
       LongRangeDisplayMode.month => en ? 'Monthly readings' : '月間占い',
       LongRangeDisplayMode.year => en ? 'Yearly readings' : '年間占い',
-      LongRangeDisplayMode.fiveYear => en ? 'Five-year readings' : '5年運',
+      LongRangeDisplayMode.tenYear => en ? 'Ten-year readings' : '10年運',
     };
     final label = switch (_mode) {
       LongRangeDisplayMode.week =>
@@ -1419,8 +1460,8 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
             ? '${month.year}-${month.month.toString().padLeft(2, '0')}'
             : '${month.year}年${month.month}月',
       LongRangeDisplayMode.year => en ? '$year' : '$year年',
-      LongRangeDisplayMode.fiveYear =>
-        en ? '$year–${year + 4}' : '$year〜${year + 4}年',
+      LongRangeDisplayMode.tenYear =>
+        en ? '$year–${year + 9}' : '$year〜${year + 9}年',
     };
     void shift(int direction) => _navigate(() {
       switch (_mode) {
@@ -1430,8 +1471,8 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
           _monthOffset += direction;
         case LongRangeDisplayMode.year:
           _yearOffset += direction;
-        case LongRangeDisplayMode.fiveYear:
-          _fiveYearOffset += direction * 5;
+        case LongRangeDisplayMode.tenYear:
+          _tenYearOffset += direction * 10;
       }
     });
     return ReadingPage(
@@ -1448,7 +1489,7 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
                     en ? 'Week' : '週',
                     en ? 'Month' : '月',
                     en ? 'Year' : '年',
-                    en ? '5 years' : '5年',
+                    en ? '10 years' : '10年',
                   ];
                   if (constraints.maxWidth <
                       MediaQuery.textScalerOf(context).scale(440)) {
@@ -1467,6 +1508,7 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
                               selected: _mode == LongRangeDisplayMode.values[i],
                               child: OutlinedButton(
                                 style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
                                   backgroundColor:
                                       _mode == LongRangeDisplayMode.values[i]
                                       ? const Color(0x3357D6D1)
@@ -1507,8 +1549,8 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
                           label: Text(en ? 'Year' : '年'),
                         ),
                         ButtonSegment(
-                          value: LongRangeDisplayMode.fiveYear,
-                          label: Text(en ? '5 years' : '5年'),
+                          value: LongRangeDisplayMode.tenYear,
+                          label: Text(en ? '10 years' : '10年'),
                         ),
                       ],
                       selected: {_mode},
@@ -1527,8 +1569,8 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
                 children: [
                   IconButton(
                     key: const ValueKey('long-range-previous'),
-                    tooltip: _mode == LongRangeDisplayMode.fiveYear
-                        ? (en ? 'Previous five years' : '前の5年')
+                    tooltip: _mode == LongRangeDisplayMode.tenYear
+                        ? (en ? 'Previous ten years' : '前の10年')
                         : (en ? 'Previous period' : '前の期間'),
                     onPressed: _navigationBusy ? null : () => shift(-1),
                     icon: const Icon(Icons.chevron_left),
@@ -1545,8 +1587,8 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
                   ),
                   IconButton(
                     key: const ValueKey('long-range-next'),
-                    tooltip: _mode == LongRangeDisplayMode.fiveYear
-                        ? (en ? 'Next five years' : '次の5年')
+                    tooltip: _mode == LongRangeDisplayMode.tenYear
+                        ? (en ? 'Next ten years' : '次の10年')
                         : (en ? 'Next period' : '次の期間'),
                     onPressed: _navigationBusy ? null : () => shift(1),
                     icon: const Icon(Icons.chevron_right),
@@ -1567,7 +1609,7 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
                               LongRangeDisplayMode.week => _weekOffset,
                               LongRangeDisplayMode.month => _monthOffset,
                               LongRangeDisplayMode.year => _yearOffset,
-                              LongRangeDisplayMode.fiveYear => _fiveYearOffset,
+                              LongRangeDisplayMode.tenYear => _tenYearOffset,
                             };
                             if (offset == 0) return;
                             _navigate(() {
@@ -1578,8 +1620,8 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
                                   _monthOffset = 0;
                                 case LongRangeDisplayMode.year:
                                   _yearOffset = 0;
-                                case LongRangeDisplayMode.fiveYear:
-                                  _fiveYearOffset = 0;
+                                case LongRangeDisplayMode.tenYear:
+                                  _tenYearOffset = 0;
                               }
                             });
                           },
@@ -1593,8 +1635,8 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
                                 en ? 'This month' : '今月',
                               LongRangeDisplayMode.year =>
                                 en ? 'This year' : '今年',
-                              LongRangeDisplayMode.fiveYear =>
-                                en ? 'Current five years' : '現在の5年',
+                              LongRangeDisplayMode.tenYear =>
+                                en ? 'Current ten years' : '現在の10年',
                             },
                     ),
                   ),
@@ -1619,10 +1661,10 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
                               ),
                               firstDate: DateTime(1900),
                               lastDate: DateTime(2100, 12, 31),
-                              helpText: _mode == LongRangeDisplayMode.fiveYear
+                              helpText: _mode == LongRangeDisplayMode.tenYear
                                   ? (en
                                         ? 'Select the starting year'
-                                        : '5年間の開始年を選択')
+                                        : '10年間の開始年を選択')
                                   : (en
                                         ? 'Select a reading period'
                                         : '占う期間を選択'),
@@ -1637,10 +1679,10 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
                                     selected.day,
                                   );
                                   final start = civil.subtract(
-                                    Duration(days: civil.weekday - 1),
+                                    Duration(days: civil.weekday % 7),
                                   );
                                   final current = today.subtract(
-                                    Duration(days: today.weekday - 1),
+                                    Duration(days: today.weekday % 7),
                                   );
                                   _weekOffset =
                                       start.difference(current).inDays ~/ 7;
@@ -1651,8 +1693,8 @@ class _LongRangeDisplayReadingState extends State<LongRangeReading> {
                                       now.month;
                                 case LongRangeDisplayMode.year:
                                   _yearOffset = selected.year - now.year;
-                                case LongRangeDisplayMode.fiveYear:
-                                  _fiveYearOffset = selected.year - now.year;
+                                case LongRangeDisplayMode.tenYear:
+                                  _tenYearOffset = selected.year - now.year;
                               }
                             });
                           },

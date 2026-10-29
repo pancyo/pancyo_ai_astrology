@@ -170,29 +170,17 @@ void main() {
             const ValueKey('astrology-calendar-day-2026-10-18'),
           );
           if (size.width < 600) {
-            // The phone's readable scrolling presentation remains unchanged.
+            expect(find.byType(AstrologyCalendarPhoneWeekRows), findsOneWidget);
+            final visible = find.descendant(of: cell, matching: find.byType(RichText))
+              .evaluate().map((e)=>(e.widget as RichText).text.toPlainText()).join(' ')
+              .replaceAll(RegExp(r'\s+'), '');
             expect(
-              find.descendant(
-                of: cell,
-                matching: find.text(english ? 'Void-of-course' : 'ボイド'),
-              ),
-              findsOneWidget,
+              visible,
+              contains(english ? 'Previousday–02:00' : '前日〜02:00'),
             );
             expect(
-              find.descendant(
-                of: cell,
-                matching: find.text(
-                  english ? 'Previous day–02:00' : '前日〜02:00',
-                ),
-              ),
-              findsOneWidget,
-            );
-            expect(
-              find.descendant(
-                of: cell,
-                matching: find.text(english ? '20:00–Next day' : '20:00〜翌日'),
-              ),
-              findsOneWidget,
+              visible,
+              contains(english ? '20:00–Nextday' : '20:00〜翌日'),
             );
           } else {
             // Tablet rows include the heading and interval together. Validate
@@ -246,14 +234,22 @@ void main() {
               contains(english ? '20:00–Next day' : '20:00〜翌日'),
             );
           }
-          expect(
-            find.textContaining(english ? 'not loaded' : '未取得'),
-            findsWidgets,
-          );
+          if (size.width < 600) {
+            expect(t.widget<AstrologyCalendarPhoneWeekRows>(find.byType(AstrologyCalendarPhoneWeekRows)).days.any((day) => day.data == null), isTrue);
+          } else {
+            expect(find.textContaining(english ? 'not loaded' : '未取得'), findsWidgets);
+          }
           expect(t.takeException(), isNull);
           await t.ensureVisible(find.byTooltip(english ? 'Next month' : '翌月'));
           await t.tap(find.byTooltip(english ? 'Next month' : '翌月'));
           await t.pumpAndSettle();
+          if (size.width < 600) {
+            // A phone shows one week; the month end stays reachable by weeks.
+            for (var i = 0; i < 2; i++) {
+              await t.tap(find.byKey(const ValueKey('calendar-phone-next-week')));
+              await t.pumpAndSettle();
+            }
+          }
           expect(
             find.byKey(const ValueKey('astrology-calendar-day-2026-11-30')),
             findsOneWidget,
