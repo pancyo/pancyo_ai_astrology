@@ -32,8 +32,15 @@ Future<void> phone(WidgetTester t, {required Size size, required bool english,
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
-    final font=File(r'C:\Windows\Fonts\meiryo.ttc');
-    if(await font.exists())await (FontLoader('WeekRowsTest')..addFont(font.readAsBytes().then(ByteData.sublistView))).load();
+    // Match the Android Latin/digit font on every host. Ahem's full-em clock
+    // digits do not represent the real phone layout on a Linux CI runner.
+    final flutterRoot=Platform.environment['FLUTTER_ROOT']??r'C:\Users\pancy\flutter';
+    final loader=FontLoader('WeekRowsTest');
+    for(final name in ['Roboto-Regular.ttf','Roboto-Bold.ttf']) {
+      loader.addFont(File('$flutterRoot/bin/cache/artifacts/material_fonts/$name')
+        .readAsBytes().then(ByteData.sublistView));
+    }
+    await loader.load();
   });
   test('week preserves Monday-Sunday dates across month, leap day and year boundaries',(){
     for(final date in [DateTime.utc(2026,10,29),DateTime.utc(2028,2,29),DateTime.utc(2027,1,1)]) {
