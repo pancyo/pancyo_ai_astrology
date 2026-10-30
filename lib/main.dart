@@ -12673,7 +12673,10 @@ class NineAreaGrid extends StatelessWidget {
             LayoutBuilder(
             builder: (context, constraints) {
               const gap = 16.0;
-              final columns = math.max(1, math.min(3,
+              final maxColumns = depth == ReadingDepth.detailed &&
+                      MediaQuery.sizeOf(context).shortestSide >= 600
+                  ? 2 : 3;
+              final columns = math.max(1, math.min(maxColumns,
                 (constraints.maxWidth / MediaQuery.textScalerOf(context).scale(350)).floor()));
               final cardWidth = (constraints.maxWidth - gap * (columns - 1)) / columns;
               final front = predictions.take(5).toList();
@@ -12710,7 +12713,14 @@ class NineAreaGrid extends StatelessWidget {
                       ),
                       const SizedBox(height: 12),
                       ReadingPeriodDate(label: NineAreaPeriodSummary.dateLabel(forecastDate)),
-                      ...rows(front),
+                      if (depth == ReadingDepth.detailed &&
+                          MediaQuery.sizeOf(context).shortestSide >= 600 &&
+                          front.any((p) => p.key == NineAreaKey.overall)) ...[
+                        tile(front.firstWhere((p) => p.key == NineAreaKey.overall)),
+                        const SizedBox(height: gap),
+                        ...rows(front.where((p) => p.key != NineAreaKey.overall).toList()),
+                      ] else
+                        ...rows(front),
                     ],
                   ),
                   if (back.isNotEmpty) ...[
@@ -12862,12 +12872,20 @@ class _NineAreaTile extends StatelessWidget {
     return NineAreaReadingCard(
       badge: badge,
       title: strings.nineAreaTitle(prediction.key.name),
+      bodyTextSize: depth == ReadingDepth.detailed
+          ? Theme.of(context).textTheme.bodyMedium?.fontSize
+          : null,
       narrative: explanation.narrativeText,
       beforeNarrative: prediction.key == NineAreaKey.overall
           ? OverallAreaHighlightsBlock(
               highlights: OverallAreaHighlights.fromPredictions(relatedPredictions),
               strings: strings,
-              style: TextStyle(fontSize: bodySize, height: 1.45),
+              style: TextStyle(
+                fontSize: depth == ReadingDepth.detailed
+                    ? Theme.of(context).textTheme.bodyMedium?.fontSize
+                    : bodySize,
+                height: 1.45,
+              ),
             )
           : null,
       evidence: detail?.numericLedgerText ?? '',

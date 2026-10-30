@@ -1,4 +1,4 @@
-name: Production v92 seven-point readings candidate (artifact only)
+name: Production 0.3.73 v92 final approved candidate (artifact only)
 
 on:
   workflow_dispatch:
@@ -43,7 +43,7 @@ jobs:
             echo 'This production candidate must have versionCode 92.' >&2
             exit 1
           fi
-          test "$version" = '0.3.68+92'
+          test "$version" = '0.3.73+92'
           grep -Fq 'else "com.pancyo.aiastrology"' android/app/build.gradle.kts
           if grep -Fq 'LegacyDataCleanup.removeFromPreviousVersions()' lib/main.dart; then
             echo 'Refusing to build while startup cleanup can delete existing user data.' >&2
@@ -105,7 +105,9 @@ jobs:
             test/period_revision_20261029_test.dart \
             test/graph_now_marker_test.dart \
             test/daily_graph_void_test.dart \
-            test/calendar_phone_week_rows_test.dart
+            test/calendar_phone_week_rows_test.dart \
+            test/english_detailed_body_size_test.dart \
+            test/tablet_overall_card_size_test.dart
 
       - name: Prepare temporary upload signing material
         shell: bash
@@ -166,7 +168,7 @@ jobs:
       - name: Save candidate as a CI artifact only
         uses: actions/upload-artifact@v4
         with:
-          name: production-seven-point-v92
+          name: production-0.3.73-v92-final
           path: |
             build/app/outputs/bundle/release/app-release.aab
             build/app/outputs/bundle/release/SHA256SUMS

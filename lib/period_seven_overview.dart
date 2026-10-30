@@ -448,12 +448,24 @@ class _PeriodSevenOverviewState extends State<PeriodSevenOverview>
                     ? constraints.maxWidth
                     : 390.0;
                 final minimum = MediaQuery.textScalerOf(context).scale(350);
+                final maxColumns = widget.depth == ReadingDepth.detailed &&
+                        widget.mode == LongRangeMode.week &&
+                        MediaQuery.sizeOf(context).shortestSide >= 600
+                    ? 2 : 3;
                 final columns = math.max(
                   1,
-                  math.min(3, (width / minimum).floor()),
+                  math.min(maxColumns, (width / minimum).floor()),
                 );
                 const gap = 16.0;
                 final cardWidth = (width - gap * (columns - 1)) / columns;
+                Widget tile(NineAreaPeriodEntry area) => _PeriodSevenOverviewCard(
+                  key: ValueKey('period-overview-card-${area.key.name}'),
+                  area: area,
+                  summary: summary,
+                  explanation: explanations![area.key]!,
+                  strings: strings,
+                  bodySize: width >= 700 ? 18 : 16,
+                );
                 Widget cards(Iterable<NineAreaPeriodEntry> areas) => Wrap(
                   spacing: gap,
                   runSpacing: gap,
@@ -461,16 +473,7 @@ class _PeriodSevenOverviewState extends State<PeriodSevenOverview>
                     for (final area in areas)
                       SizedBox(
                         width: cardWidth,
-                        child: _PeriodSevenOverviewCard(
-                          key: ValueKey(
-                            'period-overview-card-${area.key.name}',
-                          ),
-                          area: area,
-                          summary: summary,
-                          explanation: explanations![area.key]!,
-                          strings: strings,
-                          bodySize: width >= 700 ? 18 : 16,
-                        ),
+                        child: tile(area),
                       ),
                   ],
                 );
@@ -489,13 +492,14 @@ class _PeriodSevenOverviewState extends State<PeriodSevenOverview>
                     ),
                     const SizedBox(height: 12),
                     ReadingPeriodDate(label: readingPeriodRange(summary)),
-                    cards(
-                      summary.areas.where(
-                        (area) => PeriodSevenGroupedTrendData.mainKeys.contains(
-                          area.key,
-                        ),
-                      ),
-                    ),
+                    if (widget.depth == ReadingDepth.detailed &&
+                        MediaQuery.sizeOf(context).shortestSide >= 600) ...[
+                      tile(summary.areas.firstWhere((a) => a.key == NineAreaKey.overall)),
+                      const SizedBox(height: gap),
+                      cards(summary.areas.where((a) =>
+                        a.key != NineAreaKey.overall && PeriodSevenGroupedTrendData.mainKeys.contains(a.key))),
+                    ] else
+                      cards(summary.areas.where((a) => PeriodSevenGroupedTrendData.mainKeys.contains(a.key))),
                     const SizedBox(height: 20),
                     Text(
                       english ? 'Four additional categories' : '追加4項目',
@@ -672,6 +676,7 @@ class NineAreaReadingCard extends StatelessWidget {
     this.showEvidence = true,
     this.phoneSimpleLayout = false,
     this.titleIcon,
+    this.bodyTextSize,
   });
   final Widget badge;
   final Widget? beforeNarrative;
@@ -682,11 +687,12 @@ class NineAreaReadingCard extends StatelessWidget {
   final bool showEvidence;
   final bool phoneSimpleLayout;
   final IconData? titleIcon;
+  final double? bodyTextSize;
 
   @override
   Widget build(BuildContext context) {
     final en = AppLanguageScope.stringsOf(context).language == AppLanguage.en;
-    final style = TextStyle(fontSize: bodySize, height: 1.45);
+    final style = TextStyle(fontSize: bodyTextSize ?? bodySize, height: 1.45);
     if (phoneSimpleLayout) {
       return GlassPanel(
         padding: const EdgeInsets.all(18),
@@ -742,9 +748,7 @@ class NineAreaReadingCard extends StatelessWidget {
         ),
       );
     }
-    return GlassPanel(
-      padding: const EdgeInsets.all(18),
-      child: Column(
+    final content = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -798,7 +802,10 @@ class NineAreaReadingCard extends StatelessWidget {
             ),
           ],
         ],
-      ),
+      );
+    return GlassPanel(
+      padding: const EdgeInsets.all(18),
+      child: content,
     );
   }
 }
@@ -824,7 +831,14 @@ class _PeriodSevenOverviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final english = strings.language == AppLanguage.en;
-    final style = TextStyle(fontSize: bodySize, height: 1.45);
+    final standardDetailedBody = explanation.depth == ReadingDepth.detailed &&
+        summary.mode == LongRangeMode.week;
+    final style = TextStyle(
+      fontSize: standardDetailedBody
+          ? Theme.of(context).textTheme.bodyMedium?.fontSize
+          : bodySize,
+      height: 1.45,
+    );
     final felt = area.key == NineAreaKey.felt;
     final mixed = felt && summary.feltModes.length > 1;
     final scaler = MediaQuery.textScalerOf(context);
@@ -877,6 +891,9 @@ class _PeriodSevenOverviewCard extends StatelessWidget {
     return NineAreaReadingCard(
       badge: badge,
       title: strings.nineAreaTitle(area.key.name),
+      bodyTextSize: standardDetailedBody
+          ? Theme.of(context).textTheme.bodyMedium?.fontSize
+          : null,
       narrative: explanation.narrativeText,
       beforeNarrative: area.key == NineAreaKey.overall
           ? OverallAreaHighlightsBlock(
